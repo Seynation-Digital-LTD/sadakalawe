@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% set active = 'credits' %}
+{% block title %}Statement — {{ customer.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Account Statement</h2>
+    <p class="page-sub">{{ customer.name }} • {{ customer.phone or '' }}</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('credits.list') }}" class="btn btn-ghost"><i class="bi bi-arrow-left"></i> Credits / Debts</a>
+    <a href="{{ url_for('credits.statement_pdf', customer_id=customer.id) }}"
+       class="btn btn-primary" target="_blank">
+      <i class="bi bi-file-pdf"></i> Print PDF
+    </a>
+  </div>
+</div>
+
+<!-- Summary -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-label">Total Billed</div>
+      <div class="stat-value">TZS {{ '{:,.0f}'.format(total_sales) }}</div>
+      <div class="stat-count">{{ docs|length }} invoice{{ 's' if docs|length != 1 }}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-label">Total Paid</div>
+      <div class="stat-value" style="color:#16a34a">TZS {{ '{:,.0f}'.format(total_paid) }}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card {% if total_balance > 0 %}stat-card-accent{% endif %}">
+      <div class="stat-label">Balance Due</div>
+      <div class="stat-value" style="color:{% if total_balance > 0 %}#dc2626{% else %}#16a34a{% endif %}">
+        TZS {{ '{:,.0f}'.format(total_balance) }}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card-section">
+  <div class="section-header"><i class="bi bi-list-ul"></i> All Invoices</div>
+  <div class="table-responsive mt-2">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Number</th><th>Date</th><th>Branch</th>
+          <th class="text-end">Total</th><th class="text-end">Paid</th>
+          <th class="text-end">Balance</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in docs %}
+        {% set bal = d.total - d.amount_paid %}
+        <tr>
+          <td><a href="{{ url_for('documents.view', doc_id=d.id) }}" class="doc-link">{{ d.doc_number }}</a></td>
+          <td>{{ d.created_at[:10] }}</td>
+          <td><span class="badge-branch">{{ d.branch_name[:10] }}</span></td>
+          <td class="text-end">TZS {{ '{:,.0f}'.format(d.total) }}</td>
+          <td class="text-end text-success">TZS {{ '{:,.0f}'.format(d.amount_paid) }}</td>
+          <td class="text-end fw-bold {% if bal > 0 %}text-danger{% endif %}">TZS {{ '{:,.0f}'.format(bal) }}</td>
+          <td>
+            {% if d.payment_status == 'paid' %}<span class="badge-status badge-paid">Paid</span>
+            {% elif d.payment_status == 'credit' %}<span class="badge-status badge-credit">Credit</span>
+            {% elif d.payment_status == 'partial' %}<span class="badge-status badge-partial">Partial</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if d.payment_status != 'paid' %}
+            <a href="{{ url_for('credits.detail', doc_id=d.id) }}" class="btn btn-primary btn-xs">Pay</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="border-top:2px solid var(--c-border);font-weight:700">
+          <td colspan="3">TOTAL</td>
+          <td class="text-end">TZS {{ '{:,.0f}'.format(total_sales) }}</td>
+          <td class="text-end text-success">TZS {{ '{:,.0f}'.format(total_paid) }}</td>
+          <td class="text-end {% if total_balance > 0 %}text-danger{% endif %}">TZS {{ '{:,.0f}'.format(total_balance) }}</td>
+          <td colspan="2"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% endblock %}

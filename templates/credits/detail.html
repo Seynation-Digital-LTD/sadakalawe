@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+{% set active = 'credits' %}
+{% block title %}Record Payment — {{ doc.doc_number }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Record Payment</h2>
+    <p class="page-sub">{{ doc.doc_number }} •
+      {% if doc.customer_name %}{{ doc.customer_name }}{% else %}Walk-in{% endif %}
+    </p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('credits.list') }}" class="btn btn-ghost"><i class="bi bi-arrow-left"></i> Credits / Debts</a>
+    <a href="{{ url_for('documents.download_pdf', doc_id=doc.id) }}" class="btn btn-ghost" target="_blank">
+      <i class="bi bi-file-pdf"></i> PDF
+    </a>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- Left: Invoice Summary -->
+  <div class="col-lg-5">
+    <div class="card-section mb-3">
+      <div class="section-header"><i class="bi bi-file-earmark-text"></i> Invoice Summary</div>
+      <dl class="detail-list mt-2">
+        <dt>Number</dt><dd><span class="doc-link">{{ doc.doc_number }}</span></dd>
+        <dt>Date</dt><dd>{{ doc.created_at[:10] }}</dd>
+        <dt>Customer</dt><dd>{{ doc.customer_name or 'Walk-in' }}</dd>
+        {% if doc.customer_phone %}<dt>Phone</dt><dd>{{ doc.customer_phone }}</dd>{% endif %}
+        <dt>Branch</dt><dd>{{ doc.branch_name }}</dd>
+        <dt>Total</dt><dd><strong>TZS {{ '{:,.0f}'.format(doc.total) }}</strong></dd>
+        <dt>Paid</dt><dd class="text-success fw-bold">TZS {{ '{:,.0f}'.format(doc.amount_paid) }}</dd>
+        <dt>Balance</dt>
+        <dd class="{% if balance > 0 %}text-danger fw-bold{% else %}text-success fw-bold{% endif %}">
+          TZS {{ '{:,.0f}'.format(balance) }}
+          {% if balance <= 0 %}<i class="bi bi-check-circle-fill text-success"></i>{% endif %}
+        </dd>
+        {% if doc.credit_due_date %}
+        <dt>Due Date</dt>
+        <dd class="{% if doc.credit_due_date < today %}text-danger fw-bold{% endif %}">
+          {{ doc.credit_due_date }}
+          {% if doc.credit_due_date < today %}<span class="badge-status badge-danger ms-1">Overdue!</span>{% endif %}
+        </dd>
+        {% endif %}
+      </dl>
+    </div>
+
+    <!-- Items -->
+    <div class="card-section">
+      <div class="section-header"><i class="bi bi-list-ul"></i> Items Sold</div>
+      <table class="data-table mt-2">
+        <thead><tr><th>Item</th><th class="text-end">Qty</th><th class="text-end">Amount</th></tr></thead>
+        <tbody>
+          {% for item in items %}
+          <tr>
+            <td>{{ item.description }}</td>
+            <td class="text-end text-muted">{{ item.quantity | int }}</td>
+            <td class="text-end fw-bold">TZS {{ '{:,.0f}'.format(item.line_total) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Right: Payment Form + History -->
+  <div class="col-lg-7">
+    {% if balance > 0 %}
+    <div class="card-section mb-3" style="border-top:3px solid var(--c-orange)">
+      <div class="section-header"><i class="bi bi-plus-circle-fill" style="color:var(--c-orange)"></i> Record New Payment</div>
+      <form method="POST" action="{{ url_for('credits.record_payment', doc_id=doc.id) }}" class="mt-3">
+        <div class="row g-3">
+          <div class="col-sm-6">
+            <label class="field-label">Amount (TZS)</label>
+            <input type="number" name="amount" class="form-control form-control-lg"
+                   placeholder="0" min="1" max="{{ balance }}" step="any"
+                   value="{{ balance | int }}" required>
+            <p class="field-hint">Balance: TZS {{ '{:,.0f}'.format(balance) }}</p>
+          </div>
+          <div class="col-sm-6">
+            <label class="field-label">Payment Date</label>
+            <input type="date" name="payment_date" class="form-control" value="{{ today }}" required>
+          </div>
+          <div class="col-sm-6">
+            <label class="field-label">Payment Method</label>
+            <select name="payment_method" class="form-select">
+              <option value="cash">💵 Cash</option>
+              <option value="mpesa">📱 M-Pesa</option>
+              <option value="bank_transfer">🏦 Bank Transfer</option>
+              <option value="tigo_pesa">📱 Tigo Pesa</option>
+              <option value="airtel_money">📱 Airtel Money</option>
+              <option value="cheque">📋 Cheque</option>
+            </select>
+          </div>
+          <div class="col-sm-6">
+            <label class="field-label">Reference (optional)</label>
+            <input type="text" name="reference" class="form-control" placeholder="Transaction ref…">
+          </div>
+          <div class="col-12">
+            <label class="field-label">Notes (optional)</label>
+            <input type="text" name="notes" class="form-control" placeholder="Any notes…">
+          </div>
+          <div class="col-12">
+            <button type="submit" class="btn btn-primary w-100 py-2" style="font-size:15px;font-weight:700">
+              <i class="bi bi-check-circle-fill"></i> Save Payment
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+    {% else %}
+    <div class="card-section mb-3 text-center py-4" style="border-top:3px solid #16a34a">
+      <i class="bi bi-check-circle-fill" style="font-size:40px;color:#16a34a"></i>
+      <h4 class="mt-2" style="color:#16a34a">Fully Paid!</h4>
+      <p class="text-muted">This customer has cleared the full balance.</p>
+    </div>
+    {% endif %}
+
+    <!-- Payment History -->
+    <div class="card-section">
+      <div class="section-header"><i class="bi bi-receipt"></i> Payment History</div>
+      {% if payments %}
+      <table class="data-table mt-2">
+        <thead>
+          <tr><th>Date</th><th>Method</th><th>Reference</th><th class="text-end">Amount</th><th>Staff</th></tr>
+        </thead>
+        <tbody>
+          {% for p in payments %}
+          <tr>
+            <td>{{ p.payment_date }}</td>
+            <td>{{ p.payment_method | replace('_',' ') | title }}</td>
+            <td class="text-muted">{{ p.reference or '—' }}</td>
+            <td class="text-end fw-bold text-success">TZS {{ '{:,.0f}'.format(p.amount) }}</td>
+            <td class="text-muted">{{ p.recorded_by_name or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="border-top:2px solid var(--c-border)">
+            <td colspan="3" class="fw-bold">Total Paid</td>
+            <td class="text-end fw-bold text-success">TZS {{ '{:,.0f}'.format(doc.amount_paid) }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+      {% else %}
+      <p class="text-muted text-center py-3">No payments recorded yet</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

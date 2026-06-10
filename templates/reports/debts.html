@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% set active = 'rep_debts' %}
+{% block title %}Ripoti ya Madeni{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Madeni — Ripoti Kamili</h2>
+    <p class="page-sub">Watu wote wanaodaiwa pesa kwa tarehe ya leo</p>
+  </div>
+  <a href="{{ url_for('reports.debts_report', branch_id=branch_filter, export='csv') }}"
+     class="btn btn-ghost"><i class="bi bi-download"></i> Pakua CSV</a>
+</div>
+
+{% if current_user.is_admin %}
+<div class="card-section mb-3">
+  <form class="row g-2 align-items-end" method="GET">
+    <div class="col-md-4">
+      <label class="field-label">Tawi</label>
+      <select name="branch_id" class="form-select">
+        <option value="">Matawi Yote</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>{{ b.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <button type="submit" class="btn btn-primary">Angalia</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card stat-card-accent">
+      <div class="stat-label">Jumla Inayodaiwa</div>
+      <div class="stat-value">TZS {{ '{:,.0f}'.format(total_outstanding) }}</div>
+      <div class="stat-count">{{ debtors|length }} wateja</div>
+    </div>
+  </div>
+</div>
+
+<div class="card-section">
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Mteja</th><th>Simu</th><th class="text-center">Ankara</th>
+          <th class="text-end">Jumla Iliyouzwa</th><th class="text-end">Imelipwa</th>
+          <th class="text-end">Deni</th><th>Muda wa Mapema</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in debtors %}
+        {% set is_overdue = d.earliest_due and d.earliest_due < today %}
+        <tr class="{% if is_overdue %}row-overdue{% endif %}">
+          <td class="fw-600">{{ d.name }}</td>
+          <td class="text-muted">{{ d.phone or '—' }}</td>
+          <td class="text-center">{{ d.credit_count }}</td>
+          <td class="text-end">TZS {{ '{:,.0f}'.format(d.total_sold) }}</td>
+          <td class="text-end text-success">TZS {{ '{:,.0f}'.format(d.total_paid) }}</td>
+          <td class="text-end fw-bold {% if is_overdue %}text-danger{% endif %}">TZS {{ '{:,.0f}'.format(d.balance) }}</td>
+          <td>
+            {% if d.earliest_due %}
+              <span class="{% if is_overdue %}text-danger fw-bold{% endif %}">
+                {{ d.earliest_due }}{% if is_overdue %} ⚠{% endif %}
+              </span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <a href="{{ url_for('credits.customer_statement', customer_id=d.id) }}"
+               class="btn btn-ghost btn-xs">Taarifa</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">
+          <i class="bi bi-check-circle-fill text-success fs-4 d-block mb-2"></i>
+          Hakuna madeni! Wateja wote wameshalipa.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

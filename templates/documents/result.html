@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+{% set active = 'documents' %}
+{% block title %}Documents Created{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Documents Created</h2>
+    <p class="page-sub">3 documents generated — Invoice, Proforma &amp; Delivery Note</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('documents.download_zip', ids=ids_str) }}" class="btn btn-primary">
+      <i class="bi bi-file-zip"></i> Download All (ZIP)
+    </a>
+    <a href="{{ url_for('documents.new') }}" class="btn btn-outline-secondary">
+      <i class="bi bi-plus-lg"></i> New Documents
+    </a>
+  </div>
+</div>
+
+<div class="result-grid">
+  {% for doc in docs %}
+  <div class="result-card result-card--{{ doc.doc_type }}">
+    <div class="result-card__header">
+      <div class="result-card__icon">
+        {% if doc.doc_type == 'invoice' %}
+          <i class="bi bi-receipt"></i>
+        {% elif doc.doc_type == 'proforma' %}
+          <i class="bi bi-file-earmark-text"></i>
+        {% else %}
+          <i class="bi bi-truck"></i>
+        {% endif %}
+      </div>
+      <div>
+        <div class="result-card__type">{{ doc_type_labels[doc.doc_type] }}</div>
+        <div class="result-card__num">{{ doc.doc_number }}</div>
+      </div>
+    </div>
+
+    <div class="result-card__body">
+      <div class="result-info-row">
+        <span class="result-info-label">Customer</span>
+        <span>{{ doc.customer_name or 'Walk-in' }}</span>
+      </div>
+      <div class="result-info-row">
+        <span class="result-info-label">Branch</span>
+        <span>{{ doc.branch_name }}</span>
+      </div>
+      <div class="result-info-row">
+        <span class="result-info-label">Total</span>
+        <span class="fw-bold">TZS {{ "{:,.0f}".format(doc.total or 0) }}</span>
+      </div>
+    </div>
+
+    <div class="result-card__footer">
+      <a href="{{ url_for('documents.download_pdf', doc_id=doc.id) }}" target="_blank"
+         class="btn btn-sm btn-primary w-100 mb-2">
+        <i class="bi bi-file-pdf"></i> Download PDF
+      </a>
+      <a href="{{ url_for('documents.view', doc_id=doc.id) }}"
+         class="btn btn-sm btn-outline-secondary w-100">
+        <i class="bi bi-eye"></i> View Details
+      </a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="mt-4">
+  <a href="{{ url_for('documents.list') }}" class="text-muted small">
+    <i class="bi bi-arrow-left"></i> Back to Sales Log
+  </a>
+</div>
+{% endblock %}

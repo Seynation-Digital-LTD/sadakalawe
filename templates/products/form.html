@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% set active = 'products' %}
+{% block title %}{{ 'Edit' if action == 'edit' else 'New' }} Product{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">{{ 'Edit Product' if action == 'edit' else 'New Product' }}</h2>
+    <p class="page-sub">{{ product.model if action == 'edit' else 'Add a product to the catalog' }}</p>
+  </div>
+  <a href="{{ url_for('products.list') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Back
+  </a>
+</div>
+
+<div class="card-section" style="max-width:600px">
+  <form method="POST">
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Category <span class="text-danger">*</span></label>
+        <select name="brand_category" class="form-select" required>
+          {% for cat in categories %}
+          <option value="{{ cat }}"
+            {% if product and product.brand_category == cat %}selected
+            {% elif not product and cat == 'Accessories' %}selected{% endif %}>
+            {{ cat }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Model / Name <span class="text-danger">*</span></label>
+        <input type="text" name="model" class="form-control"
+               value="{{ product.model if product else '' }}" required autofocus
+               placeholder="e.g. MacBook Air M3 13-inch">
+      </div>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Description</label>
+      <input type="text" name="description" class="form-control"
+             value="{{ product.description if product else '' }}"
+             placeholder="Optional details (color, spec, etc.)">
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Price (TZS) <span class="text-danger">*</span></label>
+        <input type="number" name="price" class="form-control"
+               value="{{ product.price if product else '' }}"
+               min="0" step="1000" required placeholder="0">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Stock Count</label>
+        <input type="number" name="stock_count" class="form-control"
+               value="{{ product.stock_count if product else 0 }}" min="0">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">SKU</label>
+        <input type="text" name="sku" class="form-control"
+               value="{{ product.sku if product else '' }}" placeholder="Optional">
+      </div>
+    </div>
+
+    {% if action == 'edit' %}
+    <div class="mb-4">
+      <div class="form-check">
+        <input type="checkbox" name="is_active" id="is_active" class="form-check-input"
+               value="1" {% if product.is_active %}checked{% endif %}>
+        <label for="is_active" class="form-check-label fw-semibold">Active (visible in catalog)</label>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary px-4">
+        {{ 'Save Changes' if action == 'edit' else 'Add Product' }}
+      </button>
+      <a href="{{ url_for('products.list') }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

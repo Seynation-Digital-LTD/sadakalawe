@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% set active = 'customers' %}
+{% block title %}{{ 'Edit' if action == 'edit' else 'New' }} Customer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">{{ 'Edit Customer' if action == 'edit' else 'New Customer' }}</h2>
+    <p class="page-sub">{{ customer.name if action == 'edit' else 'Add a new customer to the system' }}</p>
+  </div>
+  <a href="{{ url_for('customers.list') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Back
+  </a>
+</div>
+
+<div class="card-section" style="max-width:640px">
+  <form method="POST">
+    {% if request.args.get('next_url') %}
+    <input type="hidden" name="next_url" value="{{ request.args.get('next_url') }}">
+    {% endif %}
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Full Name <span class="text-danger">*</span></label>
+      <input type="text" name="name" class="form-control"
+             value="{{ customer.name if customer else '' }}" required autofocus>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Phone</label>
+        <input type="text" name="phone" class="form-control"
+               value="{{ customer.phone if customer else '' }}" placeholder="+255 ...">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Email</label>
+        <input type="email" name="email" class="form-control"
+               value="{{ customer.email if customer else '' }}">
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">TIN (Business Customers)</label>
+        <input type="text" name="tin" class="form-control"
+               value="{{ customer.tin if customer else '' }}" placeholder="XXX-XXX-XXX">
+      </div>
+      {% if current_user.is_admin %}
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Branch</label>
+        <select name="branch_id" class="form-select">
+          <option value="">— Not assigned —</option>
+          {% for b in branches %}
+          <option value="{{ b.id }}"
+            {% if customer and customer.branch_id == b.id %}selected{% endif %}>
+            {{ b.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Address</label>
+      <input type="text" name="address" class="form-control"
+             value="{{ customer.address if customer else '' }}">
+    </div>
+
+    <div class="mb-4">
+      <label class="form-label fw-semibold">Notes</label>
+      <textarea name="notes" class="form-control" rows="2"
+                placeholder="Any notes about this customer...">{{ customer.notes if customer else '' }}</textarea>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary px-4">
+        {{ 'Save Changes' if action == 'edit' else 'Add Customer' }}
+      </button>
+      <a href="{{ url_for('customers.list') }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

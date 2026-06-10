@@ -1,0 +1,159 @@
+{% extends 'base.html' %}
+{% set active = 'documents' %}
+{% block title %}{{ doc.doc_number }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">{{ doc.doc_number }}</h2>
+    <p class="page-sub">{{ doc_type_label }}
+      {% if doc.is_vat %}<span class="badge bg-info-subtle text-info ms-1">VAT</span>{% endif %}
+    </p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('documents.download_pdf', doc_id=doc.id) }}" target="_blank"
+       class="btn btn-primary">
+      <i class="bi bi-file-pdf"></i> Download PDF
+    </a>
+    <a href="{{ url_for('documents.list') }}" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-left"></i> Back
+    </a>
+    {% if current_user.is_admin %}
+    <form method="POST" action="{{ url_for('documents.delete', doc_id=doc.id) }}"
+          onsubmit="return confirm('Delete this document permanently?')">
+      <button type="submit" class="btn btn-outline-danger">
+        <i class="bi bi-trash"></i>
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Document Preview -->
+<div class="doc-preview">
+  <!-- Document Header -->
+  <div class="doc-preview-header">
+    <div class="doc-preview-brand">
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" height="44">
+      <div>
+        <div class="fw-bold" style="font-size:1.1rem;letter-spacing:0.05em">SADAKALAWE ENTERPRISES</div>
+        <div class="small opacity-75">{{ doc.branch_address }}</div>
+        <div class="small opacity-75">TIN: 164-334-864 · +255 768 596 006 · sadakalawe.com</div>
+      </div>
+    </div>
+    <div class="text-end">
+      <div class="doc-type-label">{{ doc_type_label | upper }}</div>
+      <div class="fw-semibold mt-1">{{ doc.doc_number }}</div>
+    </div>
+  </div>
+
+  <!-- Bill To + Details -->
+  <div class="doc-preview-info">
+    <div>
+      <div class="doc-preview-section-label">
+        {{ 'DELIVER TO' if doc.doc_type == 'delivery_note' else 'BILL TO' }}
+      </div>
+      {% if doc.customer_name %}
+      <div class="fw-bold fs-5">{{ doc.customer_name }}</div>
+      {% if doc.customer_phone %}<div class="text-muted">Tel: {{ doc.customer_phone }}</div>{% endif %}
+      {% if doc.customer_email %}<div class="text-muted">{{ doc.customer_email }}</div>{% endif %}
+      {% if doc.customer_tin %}<div class="text-muted">TIN: {{ doc.customer_tin }}</div>{% endif %}
+      {% if doc.customer_address %}<div class="text-muted">{{ doc.customer_address }}</div>{% endif %}
+      {% else %}
+      <div class="text-muted">Walk-in Customer</div>
+      {% endif %}
+    </div>
+    <div>
+      <table class="doc-info-table">
+        <tr><th>Document No.</th><td>{{ doc.doc_number }}</td></tr>
+        <tr><th>Date</th><td>{{ doc.created_at[:10] }}</td></tr>
+        <tr><th>Branch</th><td>{{ doc.branch_name }}</td></tr>
+        <tr><th>Prepared by</th><td>{{ doc.staff_name }}</td></tr>
+        {% if doc.doc_type == 'proforma' %}
+        <tr><th>Valid for</th><td>{{ doc.validity_days }} days</td></tr>
+        {% endif %}
+        {% if doc.is_vat %}
+        <tr><th>VAT Rate</th><td>{{ doc.vat_rate | int }}%</td></tr>
+        {% if doc.efd_reference %}
+        <tr><th>EFD Ref.</th><td>{{ doc.efd_reference }}</td></tr>
+        {% endif %}
+        {% endif %}
+      </table>
+    </div>
+  </div>
+
+  {% if doc.doc_type == 'proforma' %}
+  <div class="proforma-notice">
+    This is NOT a Tax Invoice — For quotation purposes only.
+  </div>
+  {% endif %}
+
+  <!-- Line Items -->
+  <table class="doc-items-table">
+    <thead>
+      <tr>
+        <th style="width:32px">#</th>
+        <th>Description</th>
+        <th style="width:60px">Qty</th>
+        <th style="width:140px" class="text-end">Unit Price</th>
+        <th style="width:140px" class="text-end">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr class="{{ 'row-alt' if loop.index0 % 2 == 0 else '' }}">
+        <td class="text-center text-muted">{{ loop.index }}</td>
+        <td>{{ item.description }}</td>
+        <td class="text-center">{{ item.quantity | int if item.quantity == item.quantity | int else item.quantity }}</td>
+        <td class="text-end">TZS {{ "{:,.0f}".format(item.unit_price or 0) }}</td>
+        <td class="text-end fw-semibold">TZS {{ "{:,.0f}".format(item.line_total or 0) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Totals -->
+  <div class="doc-totals">
+    <div class="doc-totals-inner">
+      <div class="doc-totals-row">
+        <span>Subtotal</span>
+        <span>TZS {{ "{:,.0f}".format(doc.subtotal or 0) }}</span>
+      </div>
+      {% if doc.is_vat and doc.vat_amount %}
+      <div class="doc-totals-row">
+        <span>VAT ({{ doc.vat_rate | int }}%)</span>
+        <span>TZS {{ "{:,.0f}".format(doc.vat_amount or 0) }}</span>
+      </div>
+      {% endif %}
+      <div class="doc-totals-row doc-total-final">
+        <span>TOTAL (TZS)</span>
+        <span>TZS {{ "{:,.0f}".format(doc.total or 0) }}</span>
+      </div>
+    </div>
+  </div>
+
+  {% if doc.notes %}
+  <div class="doc-notes">
+    <strong>Notes:</strong> {{ doc.notes }}
+  </div>
+  {% endif %}
+
+  {% if doc.doc_type == 'delivery_note' %}
+  <div class="doc-signature-area">
+    <div class="signature-line">
+      <div class="sig-line"></div>
+      <div class="sig-label">Received by / Signature</div>
+    </div>
+    <div class="signature-line">
+      <div class="sig-line"></div>
+      <div class="sig-label">Date</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Footer -->
+  <div class="doc-preview-footer">
+    {{ doc.branch_address }} &nbsp;·&nbsp; +255 768 596 006 &nbsp;·&nbsp; sadakalawe.com &nbsp;·&nbsp; TIN: 164-334-864
+  </div>
+</div>
+{% endblock %}

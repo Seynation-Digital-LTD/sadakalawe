@@ -1,0 +1,118 @@
+{% extends 'base.html' %}
+{% set active = 'documents' %}
+{% block title %}Sales Log{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Sales Log</h2>
+    <p class="page-sub">{{ docs | length }} document{{ 's' if docs | length != 1 else '' }}</p>
+  </div>
+  <a href="{{ url_for('documents.new') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg"></i> New Document
+  </a>
+</div>
+
+<!-- Filters -->
+<div class="card-section mb-4">
+  <form method="GET" class="row g-2 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label small fw-semibold">Search</label>
+      <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm"
+             placeholder="Doc number or customer...">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small fw-semibold">Type</label>
+      <select name="doc_type" class="form-select form-select-sm">
+        <option value="">All Types</option>
+        {% for key, label in doc_types.items() %}
+        <option value="{{ key }}" {% if doc_type == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if current_user.is_admin %}
+    <div class="col-md-2">
+      <label class="form-label small fw-semibold">Branch</label>
+      <select name="branch_id" class="form-select form-select-sm">
+        <option value="">All</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>{{ b.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small fw-semibold">Staff</label>
+      <select name="staff_id" class="form-select form-select-sm">
+        <option value="">All Staff</option>
+        {% for s in staff_list %}
+        <option value="{{ s.id }}" {% if staff_filter|string == s.id|string %}selected{% endif %}>{{ s.full_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <div class="col-md-2">
+      <label class="form-label small fw-semibold">From</label>
+      <input type="date" name="date_from" value="{{ date_from }}" class="form-control form-control-sm">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small fw-semibold">To</label>
+      <input type="date" name="date_to" value="{{ date_to }}" class="form-control form-control-sm">
+    </div>
+    <div class="col-auto d-flex gap-1">
+      <button type="submit" class="btn btn-sm btn-secondary"><i class="bi bi-search"></i></button>
+      <a href="{{ url_for('documents.list') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
+    </div>
+  </form>
+</div>
+
+<div class="card-section">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Number</th><th>Type</th><th>Customer</th>
+        {% if current_user.is_admin %}<th>Branch</th><th>Staff</th>{% endif %}
+        <th class="text-end">Total</th><th>Date</th><th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in docs %}
+      <tr>
+        <td>
+          <a href="{{ url_for('documents.view', doc_id=d.id) }}" class="doc-link">{{ d.doc_number }}</a>
+        </td>
+        <td><span class="badge-doctype badge-{{ d.doc_type }}">{{ d.doc_type | replace('_',' ') | title }}</span></td>
+        <td>{{ d.customer_name or '<em class="text-muted">Walk-in</em>' | safe }}</td>
+        {% if current_user.is_admin %}
+        <td><span class="badge-branch">{{ d.branch_name }}</span></td>
+        <td class="small text-muted">{{ d.staff_name }}</td>
+        {% endif %}
+        <td class="text-end fw-semibold">TZS {{ "{:,.0f}".format(d.total or 0) }}</td>
+        <td class="text-muted small">{{ d.created_at[:16] }}</td>
+        <td>
+          <div class="d-flex gap-1">
+            <a href="{{ url_for('documents.view', doc_id=d.id) }}"
+               class="btn btn-xs btn-outline-secondary" title="View"><i class="bi bi-eye"></i></a>
+            <a href="{{ url_for('documents.download_pdf', doc_id=d.id) }}" target="_blank"
+               class="btn btn-xs btn-outline-danger" title="PDF"><i class="bi bi-file-pdf"></i></a>
+            {% if current_user.is_admin %}
+            <form method="POST" action="{{ url_for('documents.delete', doc_id=d.id) }}"
+                  onsubmit="return confirm('Delete {{ d.doc_number }}?')">
+              <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="8" class="text-center text-muted py-5">
+          No documents found. <a href="{{ url_for('documents.new') }}">Create one</a>.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

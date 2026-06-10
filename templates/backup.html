@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+{% set active = 'backup' %}
+{% block title %}Backup{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Backup & Export</h2>
+    <p class="page-sub">Protect your data — back up regularly</p>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-md-5">
+    <div class="card-section">
+      <div class="section-header"><i class="bi bi-cloud-arrow-down"></i> Manual Backup</div>
+      <p class="text-muted small">Creates a snapshot of the database right now. Keep last 7 daily backups.</p>
+      <form method="POST" action="{{ url_for('backup.run') }}">
+        <button type="submit" class="btn btn-primary w-100 mb-3">
+          <i class="bi bi-database-fill-down"></i> Run Backup Now
+        </button>
+      </form>
+      <a href="{{ url_for('backup.export_csv_route') }}" class="btn btn-outline-secondary w-100">
+        <i class="bi bi-file-earmark-zip"></i> Export All to CSV (ZIP)
+      </a>
+      <div class="form-text mt-2">Exports all tables: customers, products, documents, etc.</div>
+    </div>
+  </div>
+
+  <div class="col-md-7">
+    <div class="card-section">
+      <div class="section-header"><i class="bi bi-clock-history"></i> Backup History</div>
+      {% if backups %}
+      <table class="data-table">
+        <thead>
+          <tr><th>Date</th><th class="text-end">Size</th><th>Download</th></tr>
+        </thead>
+        <tbody>
+          {% for b in backups %}
+          <tr>
+            <td>{{ b.date }}</td>
+            <td class="text-end text-muted">{{ b.size_kb }} KB</td>
+            <td>
+              <a href="{{ url_for('backup.download', filename=b.filename) }}"
+                 class="btn btn-xs btn-outline-primary">
+                <i class="bi bi-download"></i> {{ b.filename }}
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="text-muted text-center py-4">
+        No backups yet. Run your first backup above.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="card-section mt-4">
+  <div class="section-header"><i class="bi bi-info-circle"></i> Backup Tips</div>
+  <ul class="text-muted small mb-0">
+    <li>Database is in WAL mode — safe from sudden power loss.</li>
+    <li>Point your backup folder to a Google Drive sync folder for off-site protection.</li>
+    <li>Run a backup at least once daily before closing the shop.</li>
+    <li>Keep a copy on a USB drive as well.</li>
+  </ul>
+</div>
+{% endblock %}

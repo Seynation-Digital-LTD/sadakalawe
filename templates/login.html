@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — Sadakalawe Enterprises</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body class="login-body">
+<div class="login-wrapper">
+  <div class="login-card">
+    <div class="login-brand">
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="Sadakalawe" class="login-logo">
+      <h1 class="login-title">SADAKALAWE</h1>
+      <p class="login-subtitle">Enterprises — Sales System</p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }} py-2">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('auth.login') }}">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Username</label>
+        <input type="text" name="username" class="form-control form-control-lg"
+               placeholder="Enter username" autofocus required>
+      </div>
+      <div class="mb-4">
+        <label class="form-label fw-semibold">Password</label>
+        <input type="password" name="password" class="form-control form-control-lg"
+               placeholder="Enter password" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-lg w-100">
+        Sign In
+      </button>
+    </form>
+
+    <p class="login-footer">Sadakalawe Enterprises &copy; 2026</p>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

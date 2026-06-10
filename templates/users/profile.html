@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}Profile{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">My Profile</h2>
+</div>
+
+<div class="card-section" style="max-width:480px">
+  <dl class="detail-list mb-4">
+    <dt>Name</dt><dd>{{ current_user.full_name }}</dd>
+    <dt>Username</dt><dd><code>{{ current_user.username }}</code></dd>
+    <dt>Role</dt><dd>{{ current_user.role | capitalize }}</dd>
+  </dl>
+
+  <hr>
+  <h5 class="fw-semibold mb-3">Change Password</h5>
+  <form method="POST">
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Current Password</label>
+      <input type="password" name="current_password" class="form-control" required>
+    </div>
+    <div class="mb-4">
+      <label class="form-label fw-semibold">New Password</label>
+      <input type="password" name="new_password" class="form-control" required minlength="6">
+    </div>
+    <button type="submit" class="btn btn-primary">Change Password</button>
+  </form>
+</div>
+{% endblock %}

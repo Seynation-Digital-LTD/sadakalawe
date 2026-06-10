@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+{% set active = 'credits' %}
+{% block title %}Credits / Debts{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Credits <span style="color:var(--c-orange)">/ Debts</span></h2>
+    <p class="page-sub">Track outstanding balances, record payments, print statements</p>
+  </div>
+  <a href="{{ url_for('documents.new') }}" class="btn btn-ghost">
+    <i class="bi bi-plus-lg"></i> New Sale
+  </a>
+</div>
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card stat-card-accent">
+      <div class="stat-label">Total Outstanding</div>
+      <div class="stat-value">TZS {{ '{:,.0f}'.format(total_outstanding) }}</div>
+      <div class="stat-count">{{ credits|length }} invoice{{ 's' if credits|length != 1 }}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-label" style="color:#93000a">Overdue</div>
+      <div class="stat-value" style="color:#93000a">{{ overdue_count }}</div>
+      <div class="stat-count">past due date</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-label">On Time</div>
+      <div class="stat-value">{{ (credits|length) - overdue_count }}</div>
+      <div class="stat-count">within due date</div>
+    </div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card-section mb-3">
+  <form class="row g-2 align-items-end" method="GET">
+    <div class="col-md-3">
+      <label class="field-label">Search Customer</label>
+      <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="Name or document number…">
+    </div>
+    <div class="col-md-3">
+      <label class="field-label">Branch</label>
+      <select name="branch_id" class="form-select">
+        <option value="">All Branches</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>{{ b.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="field-label">Status</label>
+      <select name="status" class="form-select">
+        <option value="">All</option>
+        <option value="overdue" {% if status_filter=='overdue' %}selected{% endif %}>Overdue</option>
+        <option value="credit"  {% if status_filter=='credit'  %}selected{% endif %}>Credit (Unpaid)</option>
+        <option value="partial" {% if status_filter=='partial' %}selected{% endif %}>Partially Paid</option>
+      </select>
+    </div>
+    <div class="col-md-3 d-flex gap-2">
+      <button type="submit" class="btn btn-primary flex-grow-1">Search</button>
+      <a href="{{ url_for('credits.list') }}" class="btn btn-ghost">Clear</a>
+    </div>
+  </form>
+</div>
+
+<!-- Credits Table -->
+<div class="card-section">
+  {% if credits %}
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Number</th>
+          <th>Customer</th>
+          <th>Branch</th>
+          <th class="text-end">Total</th>
+          <th class="text-end">Paid</th>
+          <th class="text-end">Balance</th>
+          <th>Due Date</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in credits %}
+        {% set is_overdue = c.credit_due_date and c.credit_due_date < today %}
+        <tr class="{% if is_overdue %}row-overdue{% endif %}">
+          <td>
+            <a href="{{ url_for('documents.view', doc_id=c.id) }}" class="doc-link">{{ c.doc_number }}</a>
+          </td>
+          <td>
+            {% if c.customer_id %}
+              <a href="{{ url_for('credits.customer_statement', customer_id=c.customer_id) }}"
+                 class="fw-600 text-dark">{{ c.customer_name }}</a>
+              <div class="text-muted" style="font-size:12px">{{ c.customer_phone or '' }}</div>
+            {% else %}
+              <span class="text-muted">Walk-in</span>
+            {% endif %}
+          </td>
+          <td><span class="badge-branch">{{ c.branch_name[:10] }}</span></td>
+          <td class="text-end">TZS {{ '{:,.0f}'.format(c.total) }}</td>
+          <td class="text-end fw-600" style="color:#155232">TZS {{ '{:,.0f}'.format(c.amount_paid) }}</td>
+          <td class="text-end fw-bold {% if is_overdue %}text-danger{% else %}text-warning-dark{% endif %}">
+            TZS {{ '{:,.0f}'.format(c.balance) }}
+          </td>
+          <td>
+            {% if c.credit_due_date %}
+              <span class="{% if is_overdue %}text-danger fw-bold{% endif %}">
+                {{ c.credit_due_date }}
+                {% if is_overdue %}<i class="bi bi-exclamation-triangle-fill"></i>{% endif %}
+              </span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if c.payment_status == 'credit' %}<span class="badge-status badge-credit">Credit</span>
+            {% elif c.payment_status == 'partial' %}<span class="badge-status badge-partial">Partial</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{{ url_for('credits.detail', doc_id=c.id) }}"
+               class="btn btn-primary btn-xs">Record Payment</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <i class="bi bi-check-circle" style="font-size:48px;color:#155232"></i>
+    <h4 class="mt-3">No Outstanding Debts!</h4>
+    <p class="text-muted">All customers are paid up or no credit sales yet.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

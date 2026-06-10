@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% set active = 'products' %}
+{% block title %}Products{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Products</h2>
+    <p class="page-sub">{{ products | length }} product{{ 's' if products | length != 1 else '' }}</p>
+  </div>
+  <a href="{{ url_for('products.new') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg"></i> New Product
+  </a>
+</div>
+
+<div class="card-section mb-4">
+  <form method="GET" class="row g-2">
+    <div class="col-md-4">
+      <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="Search model, description...">
+    </div>
+    <div class="col-md-3">
+      <select name="category" class="form-select">
+        <option value="">All Categories</option>
+        {% for cat in categories %}
+        <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto d-flex align-items-center gap-2">
+      <div class="form-check mb-0">
+        <input type="checkbox" name="inactive" id="show-inactive" class="form-check-input"
+               value="1" {% if show_inactive %}checked{% endif %}>
+        <label for="show-inactive" class="form-check-label">Show inactive</label>
+      </div>
+      <button type="submit" class="btn btn-secondary"><i class="bi bi-search"></i> Search</button>
+      <a href="{{ url_for('products.list') }}" class="btn btn-outline-secondary">Clear</a>
+    </div>
+  </form>
+</div>
+
+<div class="card-section">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Category</th><th>Model</th><th>Description</th>
+        <th>SKU</th><th class="text-end">Price (TZS)</th>
+        <th class="text-end">Stock</th><th>Status</th><th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in products %}
+      <tr class="{{ 'text-muted' if not p.is_active else '' }}">
+        <td><span class="badge-category">{{ p.brand_category }}</span></td>
+        <td class="fw-semibold">{{ p.model }}</td>
+        <td class="text-muted small">{{ p.description or '—' }}</td>
+        <td><code>{{ p.sku or '—' }}</code></td>
+        <td class="text-end fw-semibold">{{ "{:,.0f}".format(p.price or 0) }}</td>
+        <td class="text-end">
+          <span class="{{ 'text-danger fw-bold' if p.stock_count <= 0 else ('text-warning' if p.stock_count <= 3 else '') }}">
+            {{ p.stock_count }}
+          </span>
+        </td>
+        <td>
+          {% if p.is_active %}
+          <span class="badge bg-success-subtle text-success">Active</span>
+          {% else %}
+          <span class="badge bg-secondary-subtle text-secondary">Inactive</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="{{ url_for('products.edit', product_id=p.id) }}"
+             class="btn btn-xs btn-outline-primary" title="Edit">
+            <i class="bi bi-pencil"></i>
+          </a>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="8" class="text-center text-muted py-5">
+          No products found. <a href="{{ url_for('products.new') }}">Add one</a>.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

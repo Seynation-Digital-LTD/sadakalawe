@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% set active = 'stock' %}
+{% block title %}Stock Movement History{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Stock Movement History</h2>
+    <p class="page-sub">All recorded stock changes across branches</p>
+  </div>
+  <a href="{{ url_for('stock.adjust') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg"></i> Add Stock
+  </a>
+</div>
+
+<div class="card-section mb-3">
+  <form class="row g-2 align-items-end" method="GET">
+    <div class="col-md-4">
+      <label class="field-label">Product</label>
+      <select name="product_id" class="form-select">
+        <option value="">All Products</option>
+        {% for p in products %}
+        <option value="{{ p.id }}" {% if product_filter|string == p.id|string %}selected{% endif %}>
+          {{ p.brand_category }} — {{ p.model }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="field-label">Branch</label>
+      <select name="branch_id" class="form-select">
+        <option value="">All Branches</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>{{ b.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3 d-flex gap-2">
+      <button type="submit" class="btn btn-primary flex-grow-1">Filter</button>
+      <a href="{{ url_for('stock.movements') }}" class="btn btn-ghost">Clear</a>
+    </div>
+  </form>
+</div>
+
+<div class="card-section">
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Date</th><th>Product</th><th>Branch</th>
+          <th>Type</th><th class="text-end">Qty</th>
+          <th>Supplier</th><th>Staff</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in moves %}
+        <tr>
+          <td class="text-muted">{{ m.created_at[:16] }}</td>
+          <td class="fw-600">{{ m.brand_category }} {{ m.model }}</td>
+          <td><span class="badge-branch">{{ m.branch_name[:10] }}</span></td>
+          <td>
+            <span class="badge-movement {{ 'badge-movement--in' if m.quantity > 0 else 'badge-movement--out' }}">
+              {{ m.movement_type | replace('_', ' ') | title }}
+            </span>
+          </td>
+          <td class="text-end fw-bold {{ 'text-success' if m.quantity > 0 else 'text-danger' }}">
+            {% if m.quantity > 0 %}+{% endif %}{{ m.quantity | int }}
+          </td>
+          <td class="text-muted">{{ m.supplier or '—' }}</td>
+          <td class="text-muted">{{ m.staff_name or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No stock movements recorded yet</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

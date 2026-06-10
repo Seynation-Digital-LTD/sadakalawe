@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% set active = 'rep_sales' %}
+{% block title %}Sales Report{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Sales Report</h2>
+    <p class="page-sub">View sales for any time period</p>
+  </div>
+  <a href="{{ url_for('reports.sales_report', date_from=date_from, date_to=date_to, branch_id=branch_filter, export='csv') }}"
+     class="btn btn-ghost">
+    <i class="bi bi-download"></i> Export CSV
+  </a>
+</div>
+
+<!-- Filters -->
+<div class="card-section mb-3">
+  <form class="row g-2 align-items-end" method="GET">
+    <div class="col-md-3">
+      <label class="field-label">From Date</label>
+      <input type="date" name="date_from" value="{{ date_from }}" class="form-control">
+    </div>
+    <div class="col-md-3">
+      <label class="field-label">To Date</label>
+      <input type="date" name="date_to" value="{{ date_to }}" class="form-control">
+    </div>
+    {% if current_user.is_admin %}
+    <div class="col-md-3">
+      <label class="field-label">Branch</label>
+      <select name="branch_id" class="form-select">
+        <option value="">All Branches</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>{{ b.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <div class="col-md-3">
+      <button type="submit" class="btn btn-primary w-100">View</button>
+    </div>
+  </form>
+</div>
+
+<!-- Summary -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="stat-card stat-card-accent">
+      <div class="stat-label">Total Revenue</div>
+      <div class="stat-value">TZS {{ '{:,.0f}'.format(total_rev) }}</div>
+      <div class="stat-count">{{ docs|length }} invoice{{ 's' if docs|length != 1 }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-label">Collected (Cash)</div>
+      <div class="stat-value" style="color:#16a34a">TZS {{ '{:,.0f}'.format(total_paid) }}</div>
+      <div class="stat-count">{{ cash_count }} cash invoice{{ 's' if cash_count != 1 }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-label">Outstanding Credit</div>
+      <div class="stat-value" style="color:#dc2626">TZS {{ '{:,.0f}'.format(total_debt) }}</div>
+      <div class="stat-count">{{ credit_count }} credit invoice{{ 's' if credit_count != 1 }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-label">Avg per Invoice</div>
+      <div class="stat-value">TZS {{ '{:,.0f}'.format(total_rev / docs|length if docs else 0) }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card-section">
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Number</th><th>Date</th><th>Customer</th><th>Branch</th><th>Staff</th>
+          <th class="text-end">Total</th><th class="text-end">Paid</th>
+          <th class="text-end">Balance</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in docs %}
+        <tr>
+          <td><a href="{{ url_for('documents.view', doc_id=d.id) }}" class="doc-link">{{ d.doc_number }}</a></td>
+          <td>{{ d.created_at[:10] }}</td>
+          <td>{{ d.customer_name or 'Walk-in' }}</td>
+          <td><span class="badge-branch">{{ d.branch_name[:8] }}</span></td>
+          <td class="text-muted">{{ d.staff_name }}</td>
+          <td class="text-end fw-bold">TZS {{ '{:,.0f}'.format(d.total) }}</td>
+          <td class="text-end text-success">TZS {{ '{:,.0f}'.format(d.amount_paid) }}</td>
+          <td class="text-end {% if d.balance > 0 %}text-danger{% endif %}">TZS {{ '{:,.0f}'.format(d.balance) }}</td>
+          <td>
+            {% if d.payment_status == 'paid' %}<span class="badge-status badge-paid">Paid</span>
+            {% elif d.payment_status == 'credit' %}<span class="badge-status badge-credit">Credit</span>
+            {% elif d.payment_status == 'partial' %}<span class="badge-status badge-partial">Partial</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-muted py-4">No sales found for this period</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

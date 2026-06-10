@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+{% set active = 'stock' %}
+{% block title %}Add / Adjust Stock{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Add / Adjust Stock</h2>
+    <p class="page-sub">Record incoming stock or make a manual adjustment</p>
+  </div>
+  <a href="{{ url_for('stock.index') }}" class="btn btn-ghost"><i class="bi bi-arrow-left"></i> Stock Levels</a>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="form-card">
+      <form method="POST" action="{{ url_for('stock.adjust') }}">
+
+        <div class="mb-3">
+          <label class="field-label">Product</label>
+          <select name="product_id" class="form-select" required>
+            <option value="">— Select Product —</option>
+            {% set current_cat = namespace(value='') %}
+            {% for p in products %}
+              {% if p.brand_category != current_cat.value %}
+                {% if not loop.first %}</optgroup>{% endif %}
+                <optgroup label="{{ p.brand_category }}">
+                {% set current_cat.value = p.brand_category %}
+              {% endif %}
+              <option value="{{ p.id }}"
+                {% if request.args.get('product_id')|int == p.id %}selected{% endif %}>
+                {{ p.model }}{% if p.sku %} ({{ p.sku }}){% endif %}
+              </option>
+            {% endfor %}
+            {% if products %}</optgroup>{% endif %}
+          </select>
+        </div>
+
+        <div class="mb-3">
+          <label class="field-label">Branch</label>
+          <select name="branch_id" class="form-select" required>
+            {% for b in branches %}
+            <option value="{{ b.id }}"
+              {% if (request.args.get('branch_id')|string == b.id|string) or (not request.args.get('branch_id') and b.id == default_branch_id) %}selected{% endif %}>
+              {{ b.name }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="mb-3">
+          <label class="field-label">Movement Type</label>
+          <div class="row g-2">
+            {% for val, icon, label, desc in [
+              ('stock_in',      'bi-box-arrow-in-down', 'Stock In',          'New goods received from supplier'),
+              ('return',        'bi-arrow-return-left', 'Customer Return',    'Customer returned an item'),
+              ('adjustment_in', 'bi-plus-circle',       'Adjustment (+)',     'Add units — counting correction'),
+              ('adjustment_out','bi-dash-circle',        'Adjustment (−)',    'Remove units — counting correction'),
+            ] %}
+            <div class="col-sm-6">
+              <label class="movement-type-card">
+                <input type="radio" name="movement_type" value="{{ val }}"
+                       {% if val == 'stock_in' %}checked{% endif %}>
+                <div class="movement-type-card__inner">
+                  <i class="bi {{ icon }}"></i>
+                  <div>
+                    <div style="font-weight:700;font-size:13px">{{ label }}</div>
+                    <div style="font-size:11px;color:var(--c-muted)">{{ desc }}</div>
+                  </div>
+                </div>
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="field-label">Quantity</label>
+          <input type="number" name="quantity" class="form-control form-control-lg"
+                 placeholder="0" min="0.01" step="any" required>
+        </div>
+
+        <div class="mb-3">
+          <label class="field-label">Supplier / Source (optional)</label>
+          <input type="text" name="supplier" class="form-control" placeholder="Supplier name…">
+        </div>
+
+        <div class="mb-4">
+          <label class="field-label">Notes (optional)</label>
+          <textarea name="notes" class="form-control" rows="2" placeholder="Any additional notes…"></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100 py-2" style="font-size:15px;font-weight:700">
+          <i class="bi bi-check-circle-fill"></i> Save Changes
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
