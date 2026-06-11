@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+{% set active = 'expenses' %}
+{% block title %}{{ 'Edit' if action == 'edit' else 'New' }} Expense{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">{{ 'Edit Expense' if action == 'edit' else 'Add Expense' }}</h2>
+    <p class="page-sub">{{ expense.description if action == 'edit' else 'Record a business expense' }}</p>
+  </div>
+  <a href="{{ url_for('expenses.list') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Back
+  </a>
+</div>
+
+<div class="card-section" style="max-width:600px">
+  <form method="POST">
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <label class="field-label">Branch <span class="text-danger">*</span></label>
+        <select name="branch_id" class="form-select" {% if not current_user.is_admin %}disabled{% endif %}>
+          {% for b in branches %}
+          <option value="{{ b.id }}"
+            {% if expense and expense.branch_id == b.id %}selected
+            {% elif not expense and default_branch_id == b.id %}selected{% endif %}>
+            {{ b.name }}
+          </option>
+          {% endfor %}
+        </select>
+        {% if not current_user.is_admin %}
+        <input type="hidden" name="branch_id" value="{{ default_branch_id }}">
+        {% endif %}
+      </div>
+      <div class="col-md-6">
+        <label class="field-label">Date <span class="text-danger">*</span></label>
+        <input type="date" name="expense_date" class="form-control"
+               value="{{ expense.expense_date if expense else today }}" required>
+      </div>
+    </div>
+
+    <div class="mb-3">
+      <label class="field-label">Category <span class="text-danger">*</span></label>
+      <select name="category" class="form-select" required>
+        {% for cat in categories %}
+        <option value="{{ cat }}"
+          {% if expense and expense.category == cat %}selected{% endif %}>
+          {{ cat }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="mb-3">
+      <label class="field-label">Description <span class="text-danger">*</span></label>
+      <input type="text" name="description" class="form-control"
+             value="{{ expense.description if expense else '' }}"
+             placeholder="e.g. Monthly rent — Arusha shop" required autofocus>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <label class="field-label">Amount (TZS) <span class="text-danger">*</span></label>
+        <input type="number" name="amount" class="form-control"
+               value="{{ expense.amount | int if expense else '' }}"
+               min="1" step="1" placeholder="0" required>
+      </div>
+      <div class="col-md-6">
+        <label class="field-label">Receipt / Reference No.</label>
+        <input type="text" name="receipt_ref" class="form-control"
+               value="{{ expense.receipt_ref or '' if expense else '' }}"
+               placeholder="Optional receipt or voucher number">
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-primary px-4">
+        <i class="bi bi-check-lg"></i>
+        {{ 'Save Changes' if action == 'edit' else 'Save Expense' }}
+      </button>
+      <a href="{{ url_for('expenses.list') }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

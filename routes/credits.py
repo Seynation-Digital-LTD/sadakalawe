@@ -6,7 +6,7 @@ from flask import (Blueprint, render_template, request, redirect,
                    url_for, flash, send_file, abort)
 from flask_login import login_required, current_user
 from database import get_db, execute_db, query_db
-from services.pdf_generator import generate_statement_pdf
+from services.pdf_generator import generate_statement_pdf, generate_receipt_pdf
 from datetime import datetime, date
 
 bp = Blueprint('credits', __name__, url_prefix='/madeni')
@@ -130,7 +130,7 @@ def record_payment(doc_id):
         if amount <= 0:
             raise ValueError
     except (ValueError, KeyError):
-        flash('Weka kiasi sahihi cha malipo.', 'danger')
+        flash('Please enter a valid payment amount.', 'danger')
         return redirect(url_for('credits.detail', doc_id=doc_id))
 
     payment_date = request.form.get('payment_date') or date.today().isoformat()
@@ -140,7 +140,7 @@ def record_payment(doc_id):
 
     balance = float(doc['total']) - float(doc['amount_paid'])
     if amount > balance + 0.01:
-        flash(f'Kiasi kinazidi deni (TZS {balance:,.0f}).', 'danger')
+        flash(f'Amount exceeds balance (TZS {balance:,.0f}).', 'danger')
         return redirect(url_for('credits.detail', doc_id=doc_id))
 
     execute_db("""
@@ -158,10 +158,40 @@ def record_payment(doc_id):
         (round(new_paid, 2), new_status, doc_id)
     )
 
-    flash(f'Malipo ya TZS {amount:,.0f} yameandikwa. '
-          + (f'Deni limekwisha lipa!' if new_status == 'paid'
-             else f'Bado: TZS {new_balance:,.0f}'), 'success')
+    flash(f'Payment of TZS {amount:,.0f} recorded. '
+          + (f'Fully paid!' if new_status == 'paid'
+             else f'Remaining: TZS {new_balance:,.0f}'), 'success')
     return redirect(url_for('credits.detail', doc_id=doc_id))
+
+
+@bp.route('/<int:doc_id>/payments/<int:payment_id>/receipt')
+@login_required
+def payment_receipt(doc_id, payment_id):
+    """Download a PDF payment receipt for a specific payment."""
+    doc = query_db("""
+        SELECT d.*, b.name AS branch_name, b.address AS branch_address,
+               c.name AS customer_name, c.phone AS customer_phone, c.address AS customer_address
+        FROM documents d
+        JOIN branches b ON d.branch_id = b.id
+        LEFT JOIN customers c ON d.customer_id = c.id
+        WHERE d.id=?
+    """, (doc_id,), one=True)
+    if not doc:
+        abort(404)
+
+    payment = query_db("SELECT * FROM payments WHERE id=? AND document_id=?",
+                       (payment_id, doc_id), one=True)
+    if not payment:
+        abort(404)
+
+    customer = {'name': doc['customer_name'], 'phone': doc['customer_phone'],
+                'address': doc['customer_address']} if doc['customer_name'] else None
+    branch   = {'name': doc['branch_name'], 'address': doc['branch_address']}
+
+    buf   = generate_receipt_pdf(dict(payment), dict(doc), customer, branch)
+    fname = f"Receipt_{doc['doc_number']}_{payment['payment_date']}.pdf"
+    return send_file(buf, mimetype='application/pdf',
+                     as_attachment=False, download_name=fname)
 
 
 @bp.route('/customer/<int:customer_id>')

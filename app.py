@@ -19,7 +19,7 @@ def create_app():
 
     login_manager.init_app(app)
     login_manager.login_view = 'auth.login'
-    login_manager.login_message = 'Tafadhali ingia kwanza.'
+    login_manager.login_message = 'Please log in to continue.'
     login_manager.login_message_category = 'warning'
 
     @login_manager.user_loader
@@ -39,6 +39,7 @@ def create_app():
     from routes.backup_routes import bp as backup_bp
     from routes.credits import bp as credits_bp
     from routes.stock import bp as stock_bp
+    from routes.expenses import bp as expenses_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(customers_bp)
@@ -48,6 +49,7 @@ def create_app():
     app.register_blueprint(backup_bp)
     app.register_blueprint(credits_bp)
     app.register_blueprint(stock_bp)
+    app.register_blueprint(expenses_bp)
 
     @app.route('/')
     def index():

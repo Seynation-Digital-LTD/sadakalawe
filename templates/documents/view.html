@@ -10,12 +10,18 @@
       {% if doc.is_vat %}<span class="badge bg-info-subtle text-info ms-1">VAT</span>{% endif %}
     </p>
   </div>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 flex-wrap">
     <a href="{{ url_for('documents.download_pdf', doc_id=doc.id) }}" target="_blank"
        class="btn btn-primary">
       <i class="bi bi-file-pdf"></i> Download PDF
     </a>
-    <a href="{{ url_for('documents.list') }}" class="btn btn-outline-secondary">
+    {% if doc.batch_id %}
+    <a href="{{ url_for('documents.view_batch', batch_id=doc.batch_id) }}"
+       class="btn btn-outline-secondary">
+      <i class="bi bi-collection"></i> View All 3 Docs
+    </a>
+    {% endif %}
+    <a href="{{ url_for('documents.list') }}" class="btn btn-ghost">
       <i class="bi bi-arrow-left"></i> Back
     </a>
     {% if current_user.is_admin %}
@@ -28,6 +34,21 @@
     {% endif %}
   </div>
 </div>
+
+<!-- Related docs in this sale -->
+{% if siblings %}
+<div class="sibling-strip mb-3">
+  <span class="sibling-label"><i class="bi bi-collection"></i> Other docs in this sale:</span>
+  {% for s in siblings %}
+  <a href="{{ url_for('documents.view', doc_id=s.id) }}" class="sibling-pill">
+    <span class="badge-doctype badge-{{ s.doc_type }}" style="font-size:10px">
+      {{ s.doc_type | replace('_',' ') | title }}
+    </span>
+    {{ s.doc_number }}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
 
 <!-- Document Preview -->
 <div class="doc-preview">
@@ -77,6 +98,14 @@
         {% if doc.efd_reference %}
         <tr><th>EFD Ref.</th><td>{{ doc.efd_reference }}</td></tr>
         {% endif %}
+        {% endif %}
+        {% if doc.payment_status == 'credit' %}
+        <tr><th>Payment</th><td><span class="badge-credit">Credit</span>{% if doc.credit_due_date %} — due {{ doc.credit_due_date }}{% endif %}</td></tr>
+        {% elif doc.payment_method and doc.payment_method != 'cash' %}
+        {% set method_labels = {'card':'Card / POS','mpesa':'M-Pesa','airtel_money':'Airtel Money','mixx_by_yas':'Mixx by Yas','halopesa':'Halopesa','bank_transfer':'Bank Transfer','other':'Other'} %}
+        <tr><th>Payment</th><td>{{ method_labels.get(doc.payment_method, doc.payment_method) }}</td></tr>
+        {% else %}
+        <tr><th>Payment</th><td>Cash</td></tr>
         {% endif %}
       </table>
     </div>

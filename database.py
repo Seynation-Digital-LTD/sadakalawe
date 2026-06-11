@@ -149,6 +149,18 @@ def _create_tables(db):
             recorded_by      INTEGER REFERENCES users(id),
             created_at       TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
+
+        CREATE TABLE IF NOT EXISTS expenses (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            branch_id    INTEGER NOT NULL REFERENCES branches(id),
+            category     TEXT NOT NULL,
+            description  TEXT NOT NULL,
+            amount       REAL NOT NULL,
+            expense_date TEXT NOT NULL,
+            receipt_ref  TEXT,
+            recorded_by  INTEGER REFERENCES users(id),
+            created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
     """)
 
 
@@ -159,6 +171,13 @@ def _run_migrations(db):
         "ALTER TABLE documents ADD COLUMN amount_paid REAL NOT NULL DEFAULT 0",
         "ALTER TABLE documents ADD COLUMN credit_due_date TEXT",
         "ALTER TABLE products ADD COLUMN low_stock_alert INTEGER NOT NULL DEFAULT 3",
+        "ALTER TABLE documents ADD COLUMN walkin_name TEXT",
+        "ALTER TABLE documents ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'cash'",
+        "ALTER TABLE documents ADD COLUMN batch_id TEXT",
+        # Fix placeholder address on Dar es Salaam branch if it was seeded with the old value
+        "UPDATE branches SET address='Kariakoo, Aggrey Street, Dar es Salaam' WHERE short_code='DAR' AND address NOT LIKE '%Aggrey%'",
+        "UPDATE branches SET name='Arusha — Bondeni' WHERE short_code='ARU' AND name NOT LIKE '%Bondeni%'",
+        "UPDATE branches SET address='Bondeni Street, Opposite Mega Complex, Arusha' WHERE short_code='ARU' AND address NOT LIKE '%Bondeni%'",
     ]
     for sql in migrations:
         try:

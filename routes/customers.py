@@ -123,6 +123,29 @@ def edit(customer_id):
     return render_template('customers/form.html', customer=customer, branches=branches, action='edit')
 
 
+@bp.route('/quick-add', methods=['POST'])
+@login_required
+def quick_add():
+    """AJAX endpoint — create a customer inline from the New Document form."""
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    branch_id = current_user.branch_id or None
+    cid = execute_db("""
+        INSERT INTO customers (name, phone, address, tin, branch_id)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        name,
+        (data.get('phone') or '').strip() or None,
+        (data.get('address') or '').strip() or None,
+        (data.get('tin') or '').strip() or None,
+        branch_id,
+    ))
+    return jsonify({'id': cid, 'name': name,
+                    'phone': data.get('phone', '').strip()})
+
+
 @bp.route('/search')
 @login_required
 def search():

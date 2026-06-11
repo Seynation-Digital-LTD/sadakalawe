@@ -1,0 +1,129 @@
+{% extends 'base.html' %}
+{% set active = 'expenses' %}
+{% block title %}Expenses{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Expenses</h2>
+    <p class="page-sub">{{ expenses | length }} record{{ 's' if expenses | length != 1 }}
+      &nbsp;·&nbsp; Total: <strong>TZS {{ '{:,.0f}'.format(total) }}</strong></p>
+  </div>
+  <a href="{{ url_for('expenses.new') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg"></i> Add Expense
+  </a>
+</div>
+
+<!-- Filters -->
+<form method="GET" class="filter-bar mb-4">
+  <div class="row g-2 align-items-end">
+    {% if current_user.is_admin %}
+    <div class="col-auto">
+      <select name="branch_id" class="form-select form-select-sm">
+        <option value="">All Branches</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter == b.id|string %}selected{% endif %}>
+          {{ b.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <div class="col-auto">
+      <select name="category" class="form-select form-select-sm">
+        <option value="">All Categories</option>
+        {% for cat in categories %}
+        <option value="{{ cat }}" {% if category_filter == cat %}selected{% endif %}>{{ cat }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <input type="date" name="date_from" class="form-control form-control-sm"
+             value="{{ date_from }}" placeholder="From">
+    </div>
+    <div class="col-auto">
+      <input type="date" name="date_to" class="form-control form-control-sm"
+             value="{{ date_to }}" placeholder="To">
+    </div>
+    <div class="col-auto">
+      <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+      <a href="{{ url_for('expenses.list') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
+    </div>
+  </div>
+</form>
+
+<!-- Category breakdown cards -->
+{% if cat_totals %}
+<div class="row g-3 mb-4">
+  {% for cat, amt in cat_totals[:4] %}
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-label">{{ cat }}</div>
+      <div class="stat-value" style="font-size:1.1rem">TZS {{ '{:,.0f}'.format(amt) }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card-section">
+  {% if expenses %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Category</th>
+        <th>Description</th>
+        {% if current_user.is_admin %}<th>Branch</th>{% endif %}
+        <th class="text-end">Amount (TZS)</th>
+        <th>Receipt Ref</th>
+        <th>By</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in expenses %}
+      <tr>
+        <td class="text-muted small">{{ e.expense_date }}</td>
+        <td><span class="badge bg-secondary-subtle text-secondary">{{ e.category }}</span></td>
+        <td class="fw-medium">{{ e.description }}</td>
+        {% if current_user.is_admin %}<td class="text-muted small">{{ e.branch_name }}</td>{% endif %}
+        <td class="text-end fw-semibold">{{ '{:,.0f}'.format(e.amount) }}</td>
+        <td class="text-muted small">{{ e.receipt_ref or '—' }}</td>
+        <td class="text-muted small">{{ e.staff_name or '—' }}</td>
+        <td>
+          <div class="d-flex gap-1">
+            <a href="{{ url_for('expenses.edit', expense_id=e.id) }}"
+               class="btn btn-xs btn-outline-primary">
+              <i class="bi bi-pencil"></i>
+            </a>
+            {% if current_user.is_admin %}
+            <form method="POST" action="{{ url_for('expenses.delete', expense_id=e.id) }}"
+                  onsubmit="return confirm('Delete this expense?')">
+              <button type="submit" class="btn btn-xs btn-outline-danger">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="fw-bold" style="background:var(--c-surface-low)">
+        <td colspan="{% if current_user.is_admin %}4{% else %}3{% endif %}">Total</td>
+        <td class="text-end" style="color:var(--c-brand)">TZS {{ '{:,.0f}'.format(total) }}</td>
+        <td colspan="3"></td>
+      </tr>
+    </tfoot>
+  </table>
+  {% else %}
+  <div class="text-center py-5 text-muted">
+    <i class="bi bi-receipt" style="font-size:2.5rem;opacity:.3"></i>
+    <p class="mt-3">No expenses recorded yet.</p>
+    <a href="{{ url_for('expenses.new') }}" class="btn btn-primary">Add First Expense</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

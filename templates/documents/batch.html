@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% set active = 'documents' %}
+{% block title %}Sale — {{ batch_id }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Sale: {{ batch_id }}</h2>
+    <p class="page-sub">Invoice · Proforma · Delivery Note — all 3 documents for this sale</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('documents.download_merged', ids=ids_str) }}"
+       class="btn btn-primary">
+      <i class="bi bi-file-pdf"></i> Merged PDF
+    </a>
+    <a href="{{ url_for('documents.download_zip', ids=ids_str) }}"
+       class="btn btn-outline-secondary">
+      <i class="bi bi-file-zip"></i> ZIP
+    </a>
+    <a href="{{ url_for('documents.list') }}" class="btn btn-ghost">
+      <i class="bi bi-arrow-left"></i> Sales Log
+    </a>
+  </div>
+</div>
+
+{% if docs %}
+{% set first = docs[0] %}
+<!-- Sale summary strip -->
+<div class="card-section mb-3 py-3">
+  <div class="row g-3">
+    <div class="col-sm-4">
+      <div class="text-muted small">Customer</div>
+      <div class="fw-semibold">{{ first.customer_name or 'Walk-in Customer' }}</div>
+    </div>
+    <div class="col-sm-3">
+      <div class="text-muted small">Date</div>
+      <div class="fw-semibold">{{ first.created_at[:10] }}</div>
+    </div>
+    <div class="col-sm-2">
+      <div class="text-muted small">Branch</div>
+      <div class="fw-semibold">{{ first.branch_name }}</div>
+    </div>
+    <div class="col-sm-3 text-sm-end">
+      <div class="text-muted small">Total</div>
+      <div class="fw-bold" style="font-size:1.1rem;color:var(--c-orange)">
+        TZS {{ "{:,.0f}".format(first.total or 0) }}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 3 document cards -->
+<div class="result-grid">
+  {% for doc in docs %}
+  <div class="result-card result-card--{{ doc.doc_type }}">
+    <div class="result-card__header">
+      <div class="result-card__icon">
+        {% if doc.doc_type == 'invoice' %}<i class="bi bi-receipt"></i>
+        {% elif doc.doc_type == 'proforma' %}<i class="bi bi-file-earmark-text"></i>
+        {% else %}<i class="bi bi-truck"></i>{% endif %}
+      </div>
+      <div>
+        <div class="result-card__type">{{ doc_type_labels[doc.doc_type] }}</div>
+        <div class="result-card__num">{{ doc.doc_number }}</div>
+      </div>
+    </div>
+    <div class="result-card__body">
+      <div class="result-info-row">
+        <span class="result-info-label">Customer</span>
+        <span>{{ doc.customer_name or 'Walk-in' }}</span>
+      </div>
+      <div class="result-info-row">
+        <span class="result-info-label">Branch</span>
+        <span>{{ doc.branch_name }}</span>
+      </div>
+      <div class="result-info-row">
+        <span class="result-info-label">Total</span>
+        <span class="fw-bold">TZS {{ "{:,.0f}".format(doc.total or 0) }}</span>
+      </div>
+    </div>
+    <div class="result-card__footer">
+      <a href="{{ url_for('documents.download_pdf', doc_id=doc.id) }}" target="_blank"
+         class="btn btn-sm btn-primary w-100 mb-2">
+        <i class="bi bi-file-pdf"></i> Download PDF
+      </a>
+      <a href="{{ url_for('documents.view', doc_id=doc.id) }}"
+         class="btn btn-sm btn-outline-secondary w-100">
+        <i class="bi bi-eye"></i> View Details
+      </a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

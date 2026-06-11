@@ -6,21 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const VAT = typeof VAT_RATE !== 'undefined' ? parseFloat(VAT_RATE) : 18;
   let rowCount = 0;
 
-  // ── Payment Type Toggle ────────────────────────────────────
-  const optCash    = document.getElementById('opt-cash');
-  const optCredit  = document.getElementById('opt-credit');
-  const dueSec     = document.getElementById('due-date-section');
-
-  function updatePaymentUI() {
-    const isCash = document.querySelector('input[name="payment_type"]:checked')?.value === 'cash';
-    dueSec && (dueSec.style.display = isCash ? 'none' : '');
-    if (optCash)   optCash.classList.toggle('active', isCash);
-    if (optCredit) optCredit.classList.toggle('active', !isCash);
-  }
-
-  document.querySelectorAll('input[name="payment_type"]').forEach(r =>
-    r.addEventListener('change', updatePaymentUI));
-  updatePaymentUI();
+  // Payment toggle is handled inline in new.html (supports multi-method grid).
 
   // ── VAT toggle ─────────────────────────────────────────────
   const vatBox = document.getElementById('is_vat');
@@ -34,26 +20,23 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ── Customer search ────────────────────────────────────────
-  const custSearch = document.getElementById('customer-search');
+  const walkinInp  = document.getElementById('walkin_name');
   const custDrop   = document.getElementById('customer-dropdown');
   const custId     = document.getElementById('customer_id');
-  const custCard   = document.getElementById('customer-selected-card');
-  const pickerWrap = document.getElementById('customer-picker-wrap');
-  const selName    = document.getElementById('sel-name');
-  const selPhone   = document.getElementById('sel-phone');
-  const selAvatar  = document.getElementById('sel-avatar');
-  const clearBtn   = document.getElementById('clear-customer');
+  const phoneDisp  = document.getElementById('customer-phone-display');
 
   let custTimer;
 
-  custSearch && custSearch.addEventListener('input', () => {
+  walkinInp && walkinInp.addEventListener('input', () => {
     clearTimeout(custTimer);
-    const q = custSearch.value.trim();
-    if (!q) { custDrop.style.display = 'none'; return; }
+    custId.value = '';
+    if (phoneDisp) phoneDisp.value = '';
+    const q = walkinInp.value.trim();
+    if (!q || q.length < 2) { custDrop.style.display = 'none'; return; }
     custTimer = setTimeout(() => searchCustomers(q), 240);
   });
 
-  custSearch && custSearch.addEventListener('blur', () => {
+  walkinInp && walkinInp.addEventListener('blur', () => {
     setTimeout(() => { custDrop.style.display = 'none'; }, 200);
   });
 
@@ -77,22 +60,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function pickCustomer(c) {
-    custId.value   = c.id;
-    selName.textContent  = c.name;
-    selPhone.textContent = c.phone || '';
-    selAvatar.textContent = c.name.charAt(0).toUpperCase();
-    custCard.style.display  = '';
-    pickerWrap.style.display = 'none';
-    custDrop.style.display  = 'none';
+    custId.value        = c.id;
+    walkinInp.value     = c.name;
+    if (phoneDisp) phoneDisp.value = c.phone || '';
+    custDrop.style.display = 'none';
   }
-
-  clearBtn && clearBtn.addEventListener('click', () => {
-    custId.value     = '';
-    custSearch.value = '';
-    custCard.style.display   = 'none';
-    pickerWrap.style.display = '';
-    custSearch.focus();
-  });
 
   // ── Line items ─────────────────────────────────────────────
   const itemsBody = document.getElementById('items-body');
@@ -110,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <td class="row-num">${rowCount}</td>
       <td style="position:relative">
         <input type="text" name="item_description[]" class="desc-inp"
-               value="${esc(desc)}" placeholder="Jina la bidhaa…" autocomplete="off">
+               value="${esc(desc)}" placeholder="Item name or description…" autocomplete="off">
         <input type="hidden" name="item_product_id[]" class="pid-inp" value="">
       </td>
       <td>
@@ -223,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
       .some(inp => inp.value.trim() !== '');
     if (!hasItem) {
       e.preventDefault();
-      alert('Ongeza angalau bidhaa moja kabla ya kuendelea.');
+      alert('Please add at least one item before proceeding.');
     }
   });
 

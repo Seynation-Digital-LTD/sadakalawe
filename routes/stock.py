@@ -48,7 +48,7 @@ def index():
             SELECT p.id, p.brand_category, p.model, p.sku, p.price,
                    p.low_stock_alert,
                    COALESCE(SUM(ps.quantity), 0) AS stock,
-                   'Matawi Yote' AS branch_name, 0 AS branch_id, 'ALL' AS short_code
+                   'All Branches' AS branch_name, 0 AS branch_id, 'ALL' AS short_code
             FROM products p
             LEFT JOIN product_stock ps ON ps.product_id = p.id
             WHERE p.is_active=1
@@ -100,7 +100,7 @@ def adjust():
             if quantity <= 0:
                 raise ValueError("Quantity must be positive")
         except (ValueError, KeyError) as e:
-            flash(f'Tafadhali jaza taarifa zote sahihi. ({e})', 'danger')
+            flash(f'Please fill in all fields correctly. ({e})', 'danger')
             return render_template('stock/adjust.html', branches=branches,
                                    products=products, default_branch_id=default_branch_id)
 
@@ -140,8 +140,8 @@ def adjust():
 
         product = query_db("SELECT brand_category, model FROM products WHERE id=?",
                            (product_id,), one=True)
-        pname = f"{product['brand_category']} {product['model']}" if product else "Bidhaa"
-        flash(f'Hisa ya {pname} imesasishwa ({movement_type.replace("_"," ")}: {quantity:g}).', 'success')
+        pname = f"{product['brand_category']} {product['model']}" if product else "Product"
+        flash(f'Stock updated — {pname} ({movement_type.replace("_"," ")}: {quantity:g}).', 'success')
         return redirect(url_for('stock.index'))
 
     return render_template('stock/adjust.html', branches=branches,

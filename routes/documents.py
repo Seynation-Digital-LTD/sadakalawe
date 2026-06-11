@@ -8,6 +8,7 @@ from services.pdf_generator import generate_pdf
 from config import VAT_RATE, DOC_TYPE_LABELS
 from datetime import datetime, date
 from io import BytesIO
+from pypdf import PdfWriter, PdfReader
 
 bp = Blueprint('documents', __name__, url_prefix='/documents')
 
@@ -17,7 +18,8 @@ DOC_TYPES_ORDER = ['invoice', 'proforma', 'delivery_note']
 def _fetch_doc_full(doc_id):
     return query_db("""
         SELECT d.*, b.name AS branch_name, b.short_code, b.address AS branch_address,
-               c.name AS customer_name, c.phone AS customer_phone,
+               COALESCE(c.name, d.walkin_name) AS customer_name,
+               c.phone AS customer_phone,
                c.email AS customer_email, c.tin AS customer_tin,
                c.address AS customer_address, u.full_name AS staff_name
         FROM documents d
@@ -95,7 +97,8 @@ def list():
     pay_status    = request.args.get('payment_status', '')
 
     sql = """
-        SELECT d.*, b.name AS branch_name, c.name AS customer_name,
+        SELECT d.*, b.name AS branch_name,
+               COALESCE(c.name, d.walkin_name) AS customer_name,
                u.full_name AS staff_name
         FROM documents d
         JOIN branches b ON d.branch_id = b.id
@@ -113,7 +116,7 @@ def list():
         args.append(branch_filter)
 
     if q:
-        sql += " AND (d.doc_number LIKE ? OR c.name LIKE ?)"
+        sql += " AND (d.doc_number LIKE ? OR COALESCE(c.name,d.walkin_name) LIKE ?)"
         args += [f'%{q}%', f'%{q}%']
     if doc_type:
         sql += " AND d.doc_type=?"
@@ -131,7 +134,7 @@ def list():
         sql += " AND d.payment_status=?"
         args.append(pay_status)
 
-    sql += " ORDER BY d.created_at DESC LIMIT 300"
+    sql += " ORDER BY d.created_at DESC LIMIT 500"
     docs       = query_db(sql, args)
     branches   = query_db("SELECT * FROM branches ORDER BY name")
     staff_list = query_db("SELECT id, full_name FROM users ORDER BY full_name")
@@ -151,25 +154,28 @@ def new():
     if request.method == 'POST':
         branch_id       = int(request.form['branch_id'])
         customer_id     = request.form.get('customer_id') or None
+        walkin_name     = request.form.get('walkin_name', '').strip() or None
         is_vat          = 1 if request.form.get('is_vat') else 0
         notes           = request.form.get('notes', '').strip() or None
         efd_reference   = request.form.get('efd_reference', '').strip() or None
         validity_days   = int(request.form.get('validity_days', 7) or 7)
         vat_rate        = float(request.form.get('vat_rate', VAT_RATE) or VAT_RATE)
-        payment_type    = request.form.get('payment_type', 'cash')  # cash / credit
+        payment_type    = request.form.get('payment_type', 'cash')
         credit_due_date = request.form.get('credit_due_date', '').strip() or None
 
-        # payment_status & amount_paid on creation
+        # payment_type is either 'credit' or the actual method (cash/card/mpesa/…)
         if payment_type == 'credit':
             payment_status = 'credit'
+            payment_method = 'credit'
             amount_paid    = 0.0
         else:
             payment_status = 'paid'
-            amount_paid    = 0.0  # will be set to total below
+            payment_method = payment_type  # store the specific method
+            amount_paid    = 0.0  # set to total below
 
         items = _parse_items(request.form)
         if not items:
-            flash('Weka angalau bidhaa moja.', 'danger')
+            flash('Please add at least one item.', 'danger')
             return render_template('documents/new.html', branches=branches,
                                    vat_rate=VAT_RATE, default_branch_id=default_branch_id)
 
@@ -178,24 +184,28 @@ def new():
         total      = subtotal + vat_amount
         year       = datetime.now().year
 
-        if payment_type == 'cash':
-            amount_paid = total  # fully paid on creation
+        if payment_type != 'credit':
+            amount_paid = total  # fully paid on creation for all non-credit methods
 
         created_ids = []
         invoice_id  = None
+        batch_id    = None   # set from invoice number on first iteration
 
         for doc_type in DOC_TYPES_ORDER:
             doc_number = get_next_number(branch_id, doc_type, year)
+            if doc_type == 'invoice':
+                batch_id = doc_number   # use invoice number as the shared batch key
             doc_id = execute_db("""
                 INSERT INTO documents
-                  (doc_number, doc_type, branch_id, customer_id, created_by,
+                  (doc_number, doc_type, branch_id, customer_id, walkin_name, created_by,
                    is_vat, vat_rate, efd_reference, subtotal, vat_amount,
                    total, notes, validity_days,
-                   payment_status, amount_paid, credit_due_date)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, (doc_number, doc_type, branch_id, customer_id, current_user.id,
+                   payment_status, payment_method, amount_paid, credit_due_date, batch_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (doc_number, doc_type, branch_id, customer_id, walkin_name, current_user.id,
                   is_vat, vat_rate, efd_reference, subtotal, vat_amount, total,
-                  notes, validity_days, payment_status, amount_paid, credit_due_date))
+                  notes, validity_days, payment_status, payment_method,
+                  amount_paid, credit_due_date, batch_id))
 
             for item in items:
                 execute_db("""
@@ -246,7 +256,8 @@ def download_zip():
                 continue
             customer = (query_db("SELECT * FROM customers WHERE id=?",
                                  (doc['customer_id'],), one=True)
-                        if doc['customer_id'] else None)
+                        if doc['customer_id']
+                        else ({'name': doc['walkin_name']} if doc.get('walkin_name') else None))
             items  = query_db(
                 "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
             branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
@@ -268,19 +279,91 @@ def download_zip():
                      as_attachment=True, download_name=fname)
 
 
+@bp.route('/merged')
+@login_required
+def download_merged():
+    """Download all selected documents as a single merged PDF."""
+    ids_str = request.args.get('ids', '')
+    ids = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
+    if not ids:
+        abort(400)
+
+    writer = PdfWriter()
+    customer_name = ''
+
+    for doc_id in ids:
+        doc = _fetch_doc_full(doc_id)
+        if not doc:
+            continue
+        customer = (query_db("SELECT * FROM customers WHERE id=?",
+                             (doc['customer_id'],), one=True)
+                    if doc['customer_id']
+                    else ({'name': doc['walkin_name']} if doc.get('walkin_name') else None))
+        items  = query_db(
+            "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
+        branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
+                  'short_code': doc['short_code']}
+        pdf_buf = generate_pdf(dict(doc),
+                               dict(customer) if customer else None,
+                               [dict(i) for i in items],
+                               branch, doc['staff_name'])
+        reader = PdfReader(pdf_buf)
+        for page in reader.pages:
+            writer.add_page(page)
+        if not customer_name and doc.get('customer_name'):
+            customer_name = doc['customer_name']
+
+    buf = BytesIO()
+    writer.write(buf)
+    buf.seek(0)
+    slug = '_' + customer_name.replace(' ', '_')[:20] if customer_name else ''
+    fname = f"Sadakalawe{slug}_{datetime.now().strftime('%Y%m%d')}.pdf"
+    return send_file(buf, mimetype='application/pdf',
+                     as_attachment=True, download_name=fname)
+
+
+@bp.route('/batch/<batch_id>')
+@login_required
+def view_batch(batch_id):
+    """Show all documents that belong to the same sale batch."""
+    docs = query_db("""
+        SELECT d.*, b.name AS branch_name,
+               COALESCE(c.name, d.walkin_name) AS customer_name
+        FROM documents d
+        JOIN branches b ON d.branch_id = b.id
+        LEFT JOIN customers c ON d.customer_id = c.id
+        WHERE d.batch_id=?
+        ORDER BY d.doc_type
+    """, (batch_id,))
+    if not docs:
+        flash('Sale batch not found.', 'danger')
+        return redirect(url_for('documents.list'))
+    ids_str = ','.join(str(d['id']) for d in docs)
+    return render_template('documents/batch.html', docs=docs, batch_id=batch_id,
+                           ids_str=ids_str, doc_type_labels=DOC_TYPE_LABELS)
+
+
 @bp.route('/<int:doc_id>')
 @login_required
 def view(doc_id):
     doc = _fetch_doc_full(doc_id)
     if not doc:
-        flash('Hati haikupatikana.', 'danger')
+        flash('Document not found.', 'danger')
         return redirect(url_for('documents.list'))
     items = query_db(
         "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
     payments = query_db(
         "SELECT * FROM payments WHERE document_id=? ORDER BY payment_date DESC", (doc_id,))
+    # Sibling docs in the same batch (the other 2 related docs from this sale)
+    siblings = []
+    if doc.get('batch_id'):
+        siblings = query_db("""
+            SELECT id, doc_number, doc_type FROM documents
+            WHERE batch_id=? AND id!=?
+            ORDER BY doc_type
+        """, (doc['batch_id'], doc_id))
     return render_template('documents/view.html', doc=doc, items=items,
-                           payments=payments,
+                           payments=payments, siblings=siblings,
                            doc_type_label=DOC_TYPE_LABELS.get(doc['doc_type'], doc['doc_type']))
 
 
@@ -292,7 +375,8 @@ def download_pdf(doc_id):
         abort(404)
     customer = (query_db("SELECT * FROM customers WHERE id=?",
                          (doc['customer_id'],), one=True)
-                if doc['customer_id'] else None)
+                if doc['customer_id']
+                else ({'name': doc['walkin_name']} if doc.get('walkin_name') else None))
     items  = query_db(
         "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
     branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
@@ -310,10 +394,10 @@ def download_pdf(doc_id):
 @login_required
 def delete(doc_id):
     if not current_user.is_admin:
-        flash('Ruhusa ya admin inahitajika.', 'danger')
+        flash('Admin access required.', 'danger')
         return redirect(url_for('documents.list'))
     doc = query_db("SELECT doc_number FROM documents WHERE id=?", (doc_id,), one=True)
     if doc:
         execute_db("DELETE FROM documents WHERE id=?", (doc_id,))
-        flash(f'Hati {doc["doc_number"]} imefutwa.', 'success')
+        flash(f'Document {doc["doc_number"]} deleted.', 'success')
     return redirect(url_for('documents.list'))

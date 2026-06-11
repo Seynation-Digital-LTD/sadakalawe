@@ -1,6 +1,15 @@
 """
-Sadakalawe PDF Generator — premium document design.
-Matches brand: #F26522 orange, clean white body, strong typography.
+Sadakalawe PDF Generator.
+Design faithfully implements the Stitch 'Pro-Sales Enterprise' design system.
+
+Layout (top → bottom):
+  5pt orange bar · Header (badge + ref + logo) · Separator
+  Info cards (Bill To / Doc Details)
+  Items table
+  Bank info + Totals   [invoice/proforma]
+  Signature block      [delivery_note]
+  Terms & Conditions
+  Orange footer
 """
 import os
 from io import BytesIO
@@ -11,27 +20,26 @@ from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor
 
-# ── Colour palette ─────────────────────────────────────────────────────────
-C_ORANGE      = HexColor('#F26522')
-C_ORANGE_DK   = HexColor('#D4511A')
-C_ORANGE_LT   = HexColor('#FEF0E8')
-C_BLACK       = HexColor('#111111')
-C_DARK        = HexColor('#2D2D2D')
-C_BODY        = HexColor('#444444')
-C_MUTED       = HexColor('#888888')
-C_RULE        = HexColor('#E0E0E0')
-C_ROW_ALT     = HexColor('#F9F9F9')
-C_BOX_BG      = HexColor('#F5F6F8')
-C_WHITE       = HexColor('#FFFFFF')
-C_RED         = HexColor('#C0392B')
+# ── Stitch design-system colours ────────────────────────────────────────────
+C_ORANGE     = HexColor('#F26522')   # primary-container  (orange brand)
+C_ORANGE_DK  = HexColor('#a63b00')   # primary            (dark orange)
+C_ORANGE_LT  = HexColor('#ffdbce')   # primary-fixed      (light orange)
+C_BG_LOW     = HexColor('#F5F3F3')   # surface-container-low  (alt rows)
+C_WHITE      = HexColor('#FFFFFF')   # surface-container-lowest
+C_TEXT       = HexColor('#1b1c1c')   # on-surface
+C_MUTED      = HexColor('#594138')   # on-surface-variant (warm brown)
+C_SECONDARY  = HexColor('#5f5e5e')   # secondary          (cool grey)
+C_BORDER     = HexColor('#e1bfb3')   # outline-variant    (warm peach border)
+C_RED        = HexColor('#ba1a1a')   # error
+C_GREEN      = HexColor('#16a34a')
 
-# ── Page geometry ───────────────────────────────────────────────────────────
-W, H = A4          # 595.27 × 841.89 pt
-ML   = 36          # left margin
-MR   = W - 36      # right edge
-BODY = MR - ML     # 523.27 pt usable width
+# ── Page geometry ────────────────────────────────────────────────────────────
+W, H = A4       # 595.27 × 841.89 pt
+ML   = 40       # left  margin
+MR   = W - 40   # right edge
+BODY = MR - ML  # ~515 pt
 
-# ── Logo cache ──────────────────────────────────────────────────────────────
+# ── Logo cache ───────────────────────────────────────────────────────────────
 _LOGO_CACHE: Optional[bytes] = None
 _LOGO_MTIME: float = 0.0
 
@@ -59,574 +67,705 @@ def generate_pdf(document, customer, items, branch, created_by_name):
     c   = rl_canvas.Canvas(buf, pagesize=A4)
     c.setTitle(f"Sadakalawe — {document['doc_number']}")
 
-    _header(c, document)
-    _company(c)
-    y = _info_cards(c, document, customer)
-    y = _table(c, y, items, document)
-    y = _totals(c, y, document)
-    if document['doc_type'] in ('invoice', 'proforma'):
-        _payment(c, y)
-    elif document['doc_type'] == 'delivery_note':
-        _signature_line(c, y)
-    if document.get('notes'):
-        _notes(c, document['notes'])
-    _footer(c, branch)
+    y = _header(c, document)
+    y = _info_cards(c, y, document, customer)
+    y = _items_table(c, y, items, document)
 
+    if document['doc_type'] == 'delivery_note':
+        _signature_and_notes(c, y, document)
+    else:
+        y = _bank_and_totals(c, y, document)
+        _terms_section(c, y)
+
+    _footer(c, branch)
     c.save()
     buf.seek(0)
     return buf
 
 
+def generate_receipt_pdf(payment: dict, document: dict, customer: dict,
+                         branch: dict) -> BytesIO:
+    """
+    Payment Receipt — issued when a customer pays a credit invoice (fully or partially).
+    """
+    buf = BytesIO()
+    c   = rl_canvas.Canvas(buf, pagesize=A4)
+    c.setTitle(f"Receipt — {document.get('doc_number', '')}")
+
+    # ── Orange top bar ───────────────────────────────────────────────────
+    c.setFillColor(C_ORANGE)
+    c.rect(0, H - 5, W, 5, fill=1, stroke=0)
+
+    # ── Logo top-right ───────────────────────────────────────────────────
+    logo = _logo_bytes()
+    if logo:
+        try:
+            from reportlab.lib.utils import ImageReader
+            c.drawImage(ImageReader(BytesIO(logo)), MR - 157, H - 5 - 24 - 46,
+                        width=157, height=46, preserveAspectRatio=True)
+        except Exception:
+            pass
+
+    # ── PAYMENT RECEIPT badge ────────────────────────────────────────────
+    CONTENT_TOP = H - 5 - 28
+    badge_text  = 'PAYMENT RECEIPT'
+    c.setFont('Helvetica-Bold', 15)
+    tw = c.stringWidth(badge_text, 'Helvetica-Bold', 15)
+    c.setFillColor(C_GREEN if float(document.get('total', 0)) - float(payment.get('amount', 0)) <= 0.01
+                   else C_ORANGE)
+    c.roundRect(ML, CONTENT_TOP - 32, tw + 36, 32, 8, fill=1, stroke=0)
+    c.setFillColor(C_WHITE)
+    c.drawString(ML + 18, CONTENT_TOP - 32 + 10, badge_text)
+
+    # Receipt number & date
+    rn_y = CONTENT_TOP - 32 - 18
+    c.setFont('Helvetica-Bold', 8); c.setFillColor(C_SECONDARY)
+    c.drawString(ML, rn_y, 'RECEIPT NO.')
+    c.setFont('Helvetica-Bold', 15); c.setFillColor(C_TEXT)
+    c.drawString(ML, rn_y - 16, f"RCP-{payment['id']:04d}")
+    c.setFont('Helvetica', 8); c.setFillColor(C_SECONDARY)
+    c.drawString(ML, rn_y - 30, f"TIN: 164-334-864")
+
+    # Separator
+    sep_y = rn_y - 46
+    c.setStrokeColor(C_BORDER); c.setLineWidth(0.6)
+    c.line(ML, sep_y, MR, sep_y)
+
+    # ── Info cards ───────────────────────────────────────────────────────
+    y        = sep_y - 16
+    CARD_H   = 90; GAP = 24; CARD_W = (BODY - GAP) / 2; PAD = 16
+    card_bot = y - CARD_H
+
+    for x in (ML, ML + CARD_W + GAP):
+        c.setFillColor(C_WHITE); c.setStrokeColor(C_BORDER); c.setLineWidth(0.8)
+        c.roundRect(x, card_bot, CARD_W, CARD_H, 10, fill=1, stroke=1)
+
+    # Left: received from
+    _card_header(c, ML + PAD, y - PAD - 10, CARD_W - PAD * 2, 'RECEIVED FROM')
+    cy = y - PAD - 32
+    c.setFont('Helvetica-Bold', 12); c.setFillColor(C_TEXT)
+    c.drawString(ML + PAD, cy, _clip(customer.get('name', 'Walk-in Customer') if customer else 'Walk-in Customer', 32))
+    cy -= 15
+    c.setFont('Helvetica', 9); c.setFillColor(C_MUTED)
+    if customer and customer.get('phone'):
+        c.drawString(ML + PAD, cy, customer['phone']); cy -= 13
+    if customer and customer.get('address'):
+        c.drawString(ML + PAD, cy, _clip(str(customer['address']), 38))
+
+    # Right: payment details
+    rx = ML + CARD_W + GAP
+    _card_header(c, rx + PAD, y - PAD - 10, CARD_W - PAD * 2, 'PAYMENT DETAILS')
+    method_lbl = _METHOD_LABELS.get(payment.get('payment_method', 'cash'), 'Cash')
+    detail_rows = [
+        ('Payment Date', payment.get('payment_date', '')),
+        ('Method',       method_lbl),
+        ('Invoice Ref',  document.get('doc_number', '')),
+    ]
+    if payment.get('reference'):
+        detail_rows.append(('Reference', str(payment['reference'])))
+    dy = y - PAD - 28
+    for lbl, val in detail_rows:
+        c.setFont('Helvetica', 8); c.setFillColor(C_SECONDARY)
+        c.drawString(rx + PAD, dy, lbl + ':')
+        c.setFont('Helvetica-Bold', 8); c.setFillColor(C_TEXT)
+        c.drawRightString(rx + CARD_W - PAD, dy, _clip(str(val), 26))
+        dy -= 13
+
+    y = card_bot - 28
+
+    # ── Amount box (large, centered) ─────────────────────────────────────
+    BOX_H = 80
+    remaining = float(document.get('total', 0)) - float(document.get('amount_paid', 0))
+    # remaining after this payment
+    remaining_after = remaining  # already updated in DB when we get here
+
+    c.setFillColor(C_BG_LOW); c.setStrokeColor(C_BORDER); c.setLineWidth(0.8)
+    c.roundRect(ML, y - BOX_H, BODY, BOX_H, 12, fill=1, stroke=1)
+
+    c.setFont('Helvetica', 10); c.setFillColor(C_SECONDARY)
+    c.drawCentredString(W / 2, y - 20, 'AMOUNT RECEIVED')
+
+    c.setFont('Helvetica-Bold', 28); c.setFillColor(C_ORANGE)
+    c.drawCentredString(W / 2, y - 52, _tzs(payment['amount']))
+
+    y = y - BOX_H - 20
+
+    # ── Balance status ───────────────────────────────────────────────────
+    is_paid_full = remaining_after <= 0.01
+    if is_paid_full:
+        # Green "PAID IN FULL" stamp
+        c.setFont('Helvetica-Bold', 18); c.setFillColor(C_GREEN)
+        c.drawCentredString(W / 2, y - 18, '✓  PAID IN FULL')
+        y -= 36
+    else:
+        c.setFont('Helvetica', 10); c.setFillColor(C_SECONDARY)
+        c.drawCentredString(W / 2, y - 16, f"Outstanding balance: {_tzs(remaining_after)}")
+        y -= 30
+
+    # ── Thank you ────────────────────────────────────────────────────────
+    y -= 10
+    c.setFont('Helvetica', 9); c.setFillColor(C_MUTED)
+    c.drawCentredString(W / 2, y, 'Thank you for your payment! — sadakalawe.com')
+
+    _footer(c, branch)
+    c.save(); buf.seek(0)
+    return buf
+
+
 def generate_statement_pdf(customer: dict, docs: list) -> BytesIO:
-    """Account statement PDF for a customer — lists all credit transactions."""
+    """Account statement — simple list of all transactions for a customer."""
     buf = BytesIO()
     c   = rl_canvas.Canvas(buf, pagesize=A4)
     c.setTitle(f"Statement — {customer.get('name', '')}")
 
-    # Orange top bar
+    # Top bar
     c.setFillColor(C_ORANGE)
     c.rect(0, H - 5, W, 5, fill=1, stroke=0)
-
-    # Header text
-    c.setFont('Helvetica-Bold', 18)
-    c.setFillColor(C_BLACK)
-    c.drawString(ML, H - 40, 'ACCOUNT STATEMENT')
-    c.setFont('Helvetica', 8.5)
-    c.setFillColor(C_MUTED)
-    c.drawString(ML, H - 53, f"Generated: {_fmt_date(datetime.now().isoformat())}")
 
     # Logo top-right
     logo = _logo_bytes()
     if logo:
         try:
             from reportlab.lib.utils import ImageReader
-            c.drawImage(ImageReader(BytesIO(logo)), MR - 140, H - 60,
-                        width=140, height=46, preserveAspectRatio=True)
+            c.drawImage(ImageReader(BytesIO(logo)), MR - 160, H - 5 - 24 - 46,
+                        width=160, height=46, preserveAspectRatio=True)
         except Exception:
             pass
 
-    # Company info right
-    c.setFont('Helvetica-Bold', 10)
-    c.setFillColor(C_DARK)
-    c.drawRightString(MR, H - 72, 'SADAKALAWE ENTERPRISES')
-    c.setFont('Helvetica', 8)
-    c.setFillColor(C_MUTED)
-    c.drawRightString(MR, H - 83, 'TIN: 164-334-864  ·  +255 768 596 006')
+    # Title + customer
+    y = H - 5 - 28
+    c.setFont('Helvetica-Bold', 18)
+    c.setFillColor(C_TEXT)
+    c.drawString(ML, y - 16, 'ACCOUNT STATEMENT')
+    y -= 32
+
+    c.setFont('Helvetica-Bold', 13)
+    c.setFillColor(C_TEXT)
+    c.drawString(ML, y - 13, customer.get('name', ''))
+    c.setFont('Helvetica', 9)
+    c.setFillColor(C_SECONDARY)
+    if customer.get('phone'):
+        c.drawString(ML, y - 26, customer['phone'])
+    y -= 44
 
     # Separator
-    c.setStrokeColor(C_RULE)
+    c.setStrokeColor(C_BORDER)
     c.setLineWidth(0.5)
-    c.line(ML, H - 92, MR, H - 92)
+    c.line(ML, y, MR, y)
+    y -= 16
 
-    # Customer info box
-    y = H - 108
-    _rounded_box(c, ML, y - 60, BODY * 0.55, 60, C_BOX_BG)
-    _label(c, ML + 14, y - 12, 'CUSTOMER', C_ORANGE)
-    c.setFont('Helvetica-Bold', 12)
-    c.setFillColor(C_BLACK)
-    c.drawString(ML + 14, y - 26, customer.get('name', ''))
-    c.setFont('Helvetica', 8.5)
-    c.setFillColor(C_BODY)
-    for i, val in enumerate([customer.get('phone', ''), customer.get('address', '')]):
-        if val:
-            c.drawString(ML + 14, y - 38 - i * 11, val)
-
-    # Totals box right
+    # Totals summary
     total_sales   = sum(float(d.get('total', 0)) for d in docs)
     total_paid    = sum(float(d.get('amount_paid', 0)) for d in docs)
     total_balance = total_sales - total_paid
 
-    rx = ML + BODY * 0.6
-    rw = BODY * 0.4
-    _rounded_box(c, rx, y - 60, rw, 60, C_BOX_BG)
-    _label(c, rx + 14, y - 12, 'SUMMARY', C_ORANGE)
-    for i, (lbl, val, color) in enumerate([
-        ('Total Billed', _tzs(total_sales), C_DARK),
-        ('Total Paid',   _tzs(total_paid),  HexColor('#16a34a')),
-        ('Balance Due',  _tzs(total_balance), C_ORANGE if total_balance > 0 else HexColor('#16a34a')),
-    ]):
-        ry = y - 24 - i * 13
-        c.setFont('Helvetica', 8)
-        c.setFillColor(C_MUTED)
-        c.drawString(rx + 14, ry, lbl)
-        c.setFont('Helvetica-Bold', 8.5)
-        c.setFillColor(color)
-        c.drawRightString(rx + rw - 14, ry, val)
+    # Summary row
+    for lbl, val, col in [
+        ('Total Billed', _tzs(total_sales), C_TEXT),
+        ('Total Paid',   _tzs(total_paid),  C_GREEN),
+        ('Balance Due',  _tzs(total_balance), C_ORANGE if total_balance > 0 else C_GREEN),
+    ]:
+        c.setFont('Helvetica', 9)
+        c.setFillColor(C_SECONDARY)
+        c.drawString(ML, y, lbl)
+        c.setFont('Helvetica-Bold', 9)
+        c.setFillColor(col)
+        c.drawRightString(ML + 200, y, val)
+        y -= 14
+    y -= 12
 
     # Table header
-    ty = y - 76
     c.setFillColor(C_ORANGE)
-    c.rect(ML, ty - 20, BODY, 20, fill=1, stroke=0)
+    c.rect(ML, y - 24, BODY, 24, fill=1, stroke=0)
     c.setFont('Helvetica-Bold', 8)
     c.setFillColor(C_WHITE)
-    cols_w = [BODY * 0.22, BODY * 0.12, BODY * 0.12, BODY * 0.18, BODY * 0.18, BODY * 0.18]
-    headers = ['DOC NUMBER', 'DATE', 'BRANCH', 'TOTAL', 'PAID', 'BALANCE']
+    cw = [BODY * 0.22, BODY * 0.12, BODY * 0.12, BODY * 0.18, BODY * 0.18, BODY * 0.18]
+    hdrs = ['DOCUMENT', 'DATE', 'BRANCH', 'TOTAL', 'PAID', 'BALANCE']
     cx = ML
-    for title, cw in zip(headers, cols_w):
-        c.drawString(cx + 6, ty - 13, title)
-        cx += cw
+    for h_txt, cw_ in zip(hdrs, cw):
+        c.drawString(cx + 6, y - 15, h_txt)
+        cx += cw_
+    y -= 24
 
-    # Table rows
-    ty -= 20
     for i, d in enumerate(docs):
-        row_h = 18
-        if i % 2 == 1:
-            c.setFillColor(C_ROW_ALT)
-            c.rect(ML, ty - row_h, BODY, row_h, fill=1, stroke=0)
-        c.setStrokeColor(C_RULE)
+        if i % 2 == 0:
+            c.setFillColor(C_BG_LOW)
+            c.rect(ML, y - 18, BODY, 18, fill=1, stroke=0)
+        c.setStrokeColor(C_BORDER)
         c.setLineWidth(0.3)
-        c.line(ML, ty - row_h, MR, ty - row_h)
-
+        c.line(ML, y - 18, MR, y - 18)
         bal = float(d.get('total', 0)) - float(d.get('amount_paid', 0))
-        row_data = [
-            d.get('doc_number', ''),
-            d.get('created_at', '')[:10],
-            d.get('branch_name', ''),
-            _tzs(d.get('total', 0)),
-            _tzs(d.get('amount_paid', 0)),
-            _tzs(bal),
-        ]
+        row = [d.get('doc_number', ''), d.get('created_at', '')[:10],
+               d.get('branch_name', '')[:8], _tzs(d.get('total', 0)),
+               _tzs(d.get('amount_paid', 0)), _tzs(bal)]
         cx = ML
-        for j, (val, cw) in enumerate(zip(row_data, cols_w)):
+        for j, (v, cw_) in enumerate(zip(row, cw)):
             if j >= 3:
-                c.setFont('Helvetica-Bold', 8.5)
-                c.setFillColor(C_ORANGE if (j == 5 and bal > 0) else C_DARK)
-                c.drawRightString(cx + cw - 6, ty - 12, str(val))
+                c.setFont('Helvetica-Bold', 8)
+                c.setFillColor(C_ORANGE if j == 5 and bal > 0 else C_TEXT)
+                c.drawRightString(cx + cw_ - 6, y - 12, str(v))
             else:
-                c.setFont('Helvetica', 8.5)
-                c.setFillColor(C_BODY)
-                c.drawString(cx + 6, ty - 12, str(val)[:22])
-            cx += cw
-        ty -= row_h
-        if ty < 60:
+                c.setFont('Helvetica', 8)
+                c.setFillColor(C_SECONDARY)
+                c.drawString(cx + 6, y - 12, str(v)[:22])
+            cx += cw_
+        y -= 18
+        if y < 60:
             break
 
-    # Orange footer
-    c.setFillColor(C_ORANGE)
-    c.rect(0, 0, W, 26, fill=1, stroke=0)
-    c.setFont('Helvetica', 7.5)
-    c.setFillColor(C_WHITE)
-    footer = 'Bondeni Street, Opp Mega Complex, Arusha  ·  +255 768 596 006  ·  www.sadakalawe.com  ·  TIN 164-334-864'
-    fw = c.stringWidth(footer, 'Helvetica', 7.5)
-    c.drawString((W - fw) / 2, 9, footer)
-
+    _footer(c, {'address': 'Bondeni Street, Opp Mega Complex, Arusha', 'name': 'Arusha'})
     c.save()
     buf.seek(0)
     return buf
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  SECTIONS
+#  SECTION RENDERERS
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _header(c, document):
-    """Top accent bar + document-type badge."""
-    # ── Top accent bar (full-width, 5pt tall) ────────────────────────────
+def _header(c, document) -> float:
+    """
+    5pt orange bar → logo (top-right) → doc-type badge + ref number (left).
+    Returns y of separator line.
+    """
+    # ── 5pt orange bar ───────────────────────────────────────────────────
     c.setFillColor(C_ORANGE)
     c.rect(0, H - 5, W, 5, fill=1, stroke=0)
 
-    # ── Document-type badge ──────────────────────────────────────────────
-    labels = {
-        'invoice':       'INVOICE',
-        'proforma':      'PROFORMA  INVOICE',
-        'delivery_note': 'DELIVERY  NOTE',
-    }
-    text = labels.get(document['doc_type'], 'DOCUMENT')
-    bw = 195 if document['doc_type'] != 'invoice' else 155
-    bh = 34
-    bx, by = ML, H - 50
-    c.setFillColor(C_ORANGE)
-    c.roundRect(bx, by, bw, bh, 6, fill=1, stroke=0)
-    c.setFillColor(C_WHITE)
-    c.setFont('Helvetica-Bold', 11.5)
-    c.drawCentredString(bx + bw / 2, by + 11, text)
+    CONTENT_TOP = H - 5 - 28   # 28pt gap below bar
 
-    # ── Doc number below badge (small, muted) ────────────────────────────
-    c.setFont('Helvetica', 7.5)
-    c.setFillColor(C_MUTED)
-    c.drawString(ML, by - 12, document['doc_number'])
-
-
-def _company(c):
-    """Logo + company details, top-right."""
-    logo = _logo_bytes()
-    lw, lh = 160, 52
-    lx = MR - lw
-    ly = H - lh - 14
+    # ── Logo top-right ───────────────────────────────────────────────────
+    logo    = _logo_bytes()
+    LOGO_H  = 46               # pt
+    LOGO_W  = 157              # pt  (879/258 * 46 ≈ 157)
+    logo_y  = CONTENT_TOP - LOGO_H
 
     if logo:
         try:
             from reportlab.lib.utils import ImageReader
-            c.drawImage(ImageReader(BytesIO(logo)), lx, ly,
-                        width=lw, height=lh, preserveAspectRatio=True)
+            c.drawImage(ImageReader(BytesIO(logo)),
+                        MR - LOGO_W, logo_y,
+                        width=LOGO_W, height=LOGO_H,
+                        preserveAspectRatio=True)
         except Exception:
             pass
 
-    # Contact details right-aligned
-    c.setFont('Helvetica-Bold', 11)
-    c.setFillColor(C_BLACK)
-    c.drawRightString(MR, H - lh - 26, 'TIN: 164-334-864')
+    # ── Doc-type badge ───────────────────────────────────────────────────
+    labels = {
+        'invoice':       'INVOICE',
+        'proforma':      'PROFORMA INVOICE',
+        'delivery_note': 'DELIVERY NOTE',
+    }
+    badge_text = labels.get(document['doc_type'], 'DOCUMENT')
+    BADGE_H    = 32
+    BADGE_PAD  = 18
+    BADGE_FS   = 15
 
-    c.setFont('Helvetica', 8.5)
-    c.setFillColor(C_BODY)
-    c.drawRightString(MR, H - lh - 39, '+255 768 596 006')
-    c.drawRightString(MR, H - lh - 50, 'www.sadakalawe.com')
+    c.setFont('Helvetica-Bold', BADGE_FS)
+    tw         = c.stringWidth(badge_text, 'Helvetica-Bold', BADGE_FS)
+    badge_w    = tw + BADGE_PAD * 2
 
-    # Thin horizontal separator under header zone
-    c.setStrokeColor(C_RULE)
-    c.setLineWidth(0.5)
-    c.line(ML, H - 160, MR, H - 160)
+    badge_top  = CONTENT_TOP
+    badge_bot  = badge_top - BADGE_H
+
+    c.setFillColor(C_ORANGE)
+    c.roundRect(ML, badge_bot, badge_w, BADGE_H, 8, fill=1, stroke=0)
+    c.setFillColor(C_WHITE)
+    c.setFont('Helvetica-Bold', BADGE_FS)
+    c.drawString(ML + BADGE_PAD, badge_bot + 10, badge_text)
+
+    # ── Reference No. ────────────────────────────────────────────────────
+    ref_label_y = badge_bot - 18
+    c.setFont('Helvetica-Bold', 8)
+    c.setFillColor(C_SECONDARY)
+    c.drawString(ML, ref_label_y, 'REFERENCE NO.')
+
+    ref_num_y   = ref_label_y - 16
+    c.setFont('Helvetica-Bold', 16)
+    c.setFillColor(C_TEXT)
+    c.drawString(ML, ref_num_y, document['doc_number'])
+
+    # ── TIN ──────────────────────────────────────────────────────────────
+    tin_y = ref_num_y - 14
+    c.setFont('Helvetica', 8)
+    c.setFillColor(C_SECONDARY)
+    c.drawString(ML, tin_y, 'TIN: 164-334-864')
+
+    # ── Proforma disclaimer ──────────────────────────────────────────────
+    sep_y = tin_y - 16
+    if document['doc_type'] == 'proforma':
+        c.setFont('Helvetica-BoldOblique', 8)
+        c.setFillColor(C_RED)
+        c.drawString(ML, sep_y + 8,
+                     'This is NOT a Tax Invoice — For quotation purposes only.')
+        sep_y -= 12
+
+    # ── Separator ────────────────────────────────────────────────────────
+    c.setStrokeColor(C_BORDER)
+    c.setLineWidth(0.6)
+    c.line(ML, sep_y, MR, sep_y)
+
+    return sep_y - 16   # ready for info cards
 
 
-def _info_cards(c, document, customer) -> float:
-    """Two info boxes: Bill-To (left) · Document Details (right)."""
-    top = H - 168
-    card_h = 90
-    gap   = 12
+def _info_cards(c, start_y: float, document, customer) -> float:
+    """Bill-To card (left) + Document Details card (right). Returns y below cards."""
+    top      = start_y
+    CARD_H   = 106
+    GAP      = 24
+    CARD_W   = (BODY - GAP) / 2    # ~245pt each
+    PAD      = 16                   # internal card padding
+    RADIUS   = 10
 
-    left_w  = BODY * 0.55
-    right_w = BODY - left_w - gap
+    left_x   = ML
+    right_x  = ML + CARD_W + GAP
+    card_bot = top - CARD_H
+
+    # ── Draw card backgrounds ────────────────────────────────────────────
+    for x in (left_x, right_x):
+        c.setFillColor(C_WHITE)
+        c.setStrokeColor(C_BORDER)
+        c.setLineWidth(0.8)
+        c.roundRect(x, card_bot, CARD_W, CARD_H, RADIUS, fill=1, stroke=1)
 
     # ── Left card: Bill To ───────────────────────────────────────────────
-    _rounded_box(c, ML, top - card_h, left_w, card_h, C_BOX_BG)
+    label_text = 'DELIVER TO' if document['doc_type'] == 'delivery_note' else 'BILL TO'
+    label_y    = top - PAD - 10
+    _card_header(c, left_x + PAD, label_y, CARD_W - PAD * 2, label_text)
 
-    y = top - 16
-    to_label = 'DELIVER TO' if document['doc_type'] == 'delivery_note' else 'BILL TO'
-    _label(c, ML + 14, y, to_label, C_ORANGE)
-    y -= 14
-
+    cy = label_y - 22     # below the header line
     if customer and customer.get('name'):
-        c.setFont('Helvetica-Bold', 11)
-        c.setFillColor(C_BLACK)
-        _text_wrap(c, ML + 14, y, str(customer['name']), 'Helvetica-Bold', 10, left_w - 28)
-        y -= 14
-        c.setFont('Helvetica', 8.5)
-        c.setFillColor(C_BODY)
-        for key, prefix in [('address', ''), ('phone', 'Tel: '), ('tin', 'TIN: ')]:
+        c.setFont('Helvetica-Bold', 12)
+        c.setFillColor(C_TEXT)
+        c.drawString(left_x + PAD, cy, _clip(str(customer['name']), 34))
+        cy -= 16
+        c.setFont('Helvetica', 9)
+        c.setFillColor(C_MUTED)
+        for key in ('address', 'phone', 'tin'):
             val = (customer.get(key) or '').strip()
-            if val:
-                _text_wrap(c, ML + 14, y, prefix + val, 'Helvetica', 8.5, left_w - 28)
-                y -= 12
+            if val and cy > card_bot + 8:
+                prefix = 'TIN: ' if key == 'tin' else ''
+                c.drawString(left_x + PAD, cy, _clip(prefix + val, 40))
+                cy -= 13
     else:
-        c.setFont('Helvetica-Bold', 10)
-        c.setFillColor(C_DARK)
-        c.drawString(ML + 14, y, 'Walk-in Customer')
+        c.setFont('Helvetica', 10)
+        c.setFillColor(C_SECONDARY)
+        c.drawString(left_x + PAD, cy, 'Walk-in Customer')
 
-    # ── Right card: Doc details ──────────────────────────────────────────
-    rx = ML + left_w + gap
-    _rounded_box(c, rx, top - card_h, right_w, card_h, C_BOX_BG)
+    # ── Right card: Document Details ─────────────────────────────────────
+    _card_header(c, right_x + PAD, label_y, CARD_W - PAD * 2, 'DOCUMENT DETAILS')
 
-    dy = top - 16
-    _label(c, rx + 14, dy, 'DOCUMENT DETAILS', C_ORANGE)
-    dy -= 13
-
+    dy = label_y - 18
     rows = [
-        ('No.', document['doc_number']),
-        ('Date', _fmt_date(document['created_at'])),
-        ('Branch', document.get('branch_name', '')),
+        ('Date Issued', _fmt_date(document['created_at'])),
+        ('Branch',      document.get('branch_name', '')),
     ]
+    if document.get('credit_due_date'):
+        rows.append(('Due Date', str(document['credit_due_date'])))
     if document['doc_type'] == 'proforma':
-        rows.append(('Valid for', f"{document.get('validity_days', 7)} days"))
-    if document.get('is_vat') and document.get('efd_reference'):
-        rows.append(('EFD Ref', document['efd_reference']))
+        rows.append(('Valid For', f"{document.get('validity_days', 7)} days"))
+    rows.append(('Payment', _payment_label(document)))
 
     for lbl, val in rows:
         c.setFont('Helvetica', 8)
-        c.setFillColor(C_MUTED)
-        c.drawString(rx + 14, dy, lbl)
+        c.setFillColor(C_SECONDARY)
+        c.drawString(right_x + PAD, dy, lbl + ':')
         c.setFont('Helvetica-Bold', 8)
-        c.setFillColor(C_DARK)
-        c.drawRightString(rx + right_w - 14, dy, str(val)[:32])
-        dy -= 12
+        c.setFillColor(C_TEXT)
+        c.drawRightString(right_x + CARD_W - PAD, dy, _clip(str(val), 26))
+        dy -= 13
+        if dy < card_bot + 8:
+            break
 
-    # Proforma disclaimer
-    if document['doc_type'] == 'proforma':
-        notice_y = top - card_h - 14
-        c.setFont('Helvetica-Bold', 7.5)
-        c.setFillColor(C_RED)
-        c.drawString(ML, notice_y, '⚠  This is NOT a Tax Invoice — For quotation purposes only.')
-        return notice_y - 10
-
-    return top - card_h - 14
+    return card_bot - 20   # gap before table
 
 
-def _table(c, start_y: float, items: list, document: dict) -> float:
-    """Items table with styled header and clean rows."""
-    doc_type = document['doc_type']
-    y = start_y - 4
+def _items_table(c, start_y: float, items: list, document: dict) -> float:
+    """
+    Orange header + alternating rows matching Stitch table style.
+    Returns y below the table.
+    """
+    y         = start_y
+    doc_type  = document['doc_type']
+    HDR_H     = 30
+    ROW_H     = 28
 
-    # ── Column layout ────────────────────────────────────────────────────
+    # Column definitions
     if doc_type == 'delivery_note':
-        cols = [('ITEM', BODY - 80, 'left'), ('QTY', 80, 'center')]
-    else:
         cols = [
-            ('ITEM',       BODY - 60 - 120 - 120, 'left'),
-            ('QTY',        60,   'center'),
-            ('UNIT PRICE', 120,  'right'),
-            ('AMOUNT',     120,  'right'),
+            ('ITEM DESCRIPTION', BODY - 80,  'left'),
+            ('QTY',              80,          'center'),
+        ]
+    else:
+        desc_w = BODY - 64 - 120 - 110
+        cols = [
+            ('ITEM DESCRIPTION', desc_w,  'left'),
+            ('QTY',              64,       'center'),
+            ('UNIT PRICE',       120,      'right'),
+            ('AMOUNT',           110,      'right'),
         ]
 
-    row_base_h = 22
-    hdr_h      = 22
-
-    # ── Header row ───────────────────────────────────────────────────────
+    # ── Orange header row ────────────────────────────────────────────────
     c.setFillColor(C_ORANGE)
-    c.rect(ML, y - hdr_h, BODY, hdr_h, fill=1, stroke=0)
+    c.rect(ML, y - HDR_H, BODY, HDR_H, fill=1, stroke=0)
 
-    c.setFont('Helvetica-Bold', 8)
+    c.setFont('Helvetica-Bold', 9)
     c.setFillColor(C_WHITE)
     cx = ML
-    for title, w, align in cols:
-        _tbl_header_cell(c, cx, y - hdr_h, w, hdr_h, title, align)
-        cx += w
-    y -= hdr_h
+    for title, cw, align in cols:
+        _cell_text(c, cx, y - HDR_H, cw, HDR_H, title, 'Helvetica-Bold', 9, C_WHITE, align, pad=10)
+        cx += cw
+    y -= HDR_H
 
     # ── Data rows ────────────────────────────────────────────────────────
     for i, item in enumerate(items):
-        desc   = str(item.get('description') or '')
-        lines  = [l.strip() for l in desc.split('\n') if l.strip()]
-        main   = lines[0] if lines else ''
-        subs   = lines[1:]
-        rh     = max(row_base_h, 15 + len(subs) * 12 + 6)
+        desc  = str(item.get('description') or '')
+        parts = [p.strip() for p in desc.split('\n') if p.strip()]
+        main  = parts[0] if parts else ''
+        subs  = parts[1:]
+        rh    = max(ROW_H, 16 + len(subs) * 12 + 8)
 
-        # alternating bg
-        if i % 2 == 1:
-            c.setFillColor(C_ROW_ALT)
-            c.rect(ML, y - rh, BODY, rh, fill=1, stroke=0)
+        bg = C_BG_LOW if i % 2 == 0 else C_WHITE
+        c.setFillColor(bg)
+        c.rect(ML, y - rh, BODY, rh, fill=1, stroke=0)
 
-        # bottom rule
-        c.setStrokeColor(C_RULE)
-        c.setLineWidth(0.4)
+        # Row bottom border
+        c.setStrokeColor(C_BORDER)
+        c.setLineWidth(0.3)
         c.line(ML, y - rh, MR, y - rh)
 
-        # item name (bold)
-        text_y = y - 13
-        c.setFont('Helvetica-Bold', 9)
-        c.setFillColor(C_BLACK)
-        c.drawString(ML + 8, text_y, _clip(main, 60 if doc_type == 'delivery_note' else 52))
-
-        # sub-lines
+        # Description (bold main line + light sub-lines)
+        text_y = y - 16
+        c.setFont('Helvetica-Bold', 9.5)
+        c.setFillColor(C_TEXT)
+        c.drawString(ML + 10, text_y, _clip(main, 52))
         for sl in subs:
             text_y -= 12
             c.setFont('Helvetica', 8)
-            c.setFillColor(C_BODY)
-            c.drawString(ML + 16, text_y, _clip(sl, 58 if doc_type == 'delivery_note' else 50))
+            c.setFillColor(C_SECONDARY)
+            c.drawString(ML + 18, text_y, _clip(sl, 52))
 
-        # right-side cells
+        # Numeric cells
         qty   = float(item.get('quantity', 1) or 1)
         price = float(item.get('unit_price', 0) or 0)
         total = float(item.get('line_total', 0) or 0)
-
-        cx = ML + cols[0][1]  # after ITEM column
-
-        # QTY
-        c.setFont('Helvetica', 9)
-        c.setFillColor(C_DARK)
         qty_s = str(int(qty)) if qty == int(qty) else f'{qty:.2f}'
-        c.drawCentredString(cx + cols[1][1] / 2, y - 13, qty_s)
+
+        cx = ML + cols[0][1]
+        c.setFont('Helvetica', 9.5)
+        c.setFillColor(C_TEXT)
+        c.drawCentredString(cx + cols[1][1] / 2, y - 16, qty_s)
         cx += cols[1][1]
 
         if doc_type != 'delivery_note':
-            # UNIT PRICE
             c.setFont('Helvetica', 9)
-            c.drawRightString(cx + cols[2][1] - 8, y - 13, _tzs(price))
+            c.setFillColor(C_SECONDARY)
+            c.drawRightString(cx + cols[2][1] - 10, y - 16, _tzs(price))
             cx += cols[2][1]
-            # AMOUNT
-            c.setFont('Helvetica-Bold', 9)
-            c.setFillColor(C_BLACK)
-            c.drawRightString(cx + cols[3][1] - 8, y - 13, _tzs(total))
+            c.setFont('Helvetica-Bold', 9.5)
+            c.setFillColor(C_TEXT)
+            c.drawRightString(cx + cols[3][1] - 10, y - 16, _tzs(total))
 
         y -= rh
 
-    # Thick bottom rule for table
+    # Bottom rule
     c.setStrokeColor(C_ORANGE)
-    c.setLineWidth(1)
+    c.setLineWidth(1.0)
     c.line(ML, y, MR, y)
 
-    return y - 6
+    return y - 18
 
 
-def _totals(c, y: float, document: dict) -> float:
-    """Right-aligned totals block."""
-    block_x = MR - 240
-    block_w = 240
-    line_h  = 18
-    y -= 6
+def _bank_and_totals(c, start_y: float, document: dict) -> float:
+    """
+    Left half: Payment Information with orange left-border.
+    Right ~40%: Subtotal / VAT / Total.
+    Returns y below this section.
+    """
+    y        = start_y
+    SECTION_H = 110   # min height for this block
+    HALF     = BODY * 0.52
+    RIGHT_X  = ML + HALF + 16
+    RIGHT_W  = BODY - HALF - 16
 
-    def _tot_row(label, value, bold=False, orange_bg=False):
-        nonlocal y
-        if orange_bg:
+    # ── Bank info (left, with 4pt orange left border) ────────────────────
+    # Orange left accent bar
+    c.setFillColor(C_ORANGE)
+    c.rect(ML, y - SECTION_H, 4, SECTION_H, fill=1, stroke=0)
+
+    bx = ML + 14    # text start after bar
+    by = y - 12
+
+    c.setFont('Helvetica-Bold', 9)
+    c.setFillColor(C_TEXT)
+    c.drawString(bx, by, 'PAYMENT INFORMATION')
+    by -= 18
+
+    bank_rows = [
+        ('Bank',           'NMB Bank PLC'),
+        ('Account Name',   'Sadakalawe Enterprises'),
+        ('Account No.',    '42710089645'),
+        ('Swift Code',     'NMBTZTZ'),
+    ]
+    for lbl, val in bank_rows:
+        c.setFont('Helvetica', 8.5)
+        c.setFillColor(C_SECONDARY)
+        c.drawString(bx, by, lbl + ':')
+        c.setFont('Helvetica-Bold', 8.5)
+        c.setFillColor(C_TEXT)
+        c.drawString(bx + 80, by, val)
+        by -= 13
+
+    by -= 6
+    c.setFont('Helvetica-Oblique', 7.5)
+    c.setFillColor(C_SECONDARY)
+    c.drawString(bx, by, 'Please use the Invoice Number as the payment reference.')
+
+    # ── Totals (right) ───────────────────────────────────────────────────
+    ty = y - 10
+    LINE_H = 22
+
+    def tot_row(label, val_str, is_grand=False):
+        nonlocal ty
+        if is_grand:
+            c.setFont('Helvetica-Bold', 17)
             c.setFillColor(C_ORANGE)
-            c.roundRect(block_x - 4, y - line_h - 2, block_w + 4, line_h + 6, 5, fill=1, stroke=0)
-            c.setFillColor(C_WHITE)
-            font = 'Helvetica-Bold'
-            size = 11
+            c.drawString(RIGHT_X, ty - LINE_H + 5, label)
+            c.drawRightString(RIGHT_X + RIGHT_W, ty - LINE_H + 5, val_str)
         else:
-            c.setFillColor(C_DARK if bold else C_BODY)
-            font = 'Helvetica-Bold' if bold else 'Helvetica'
-            size = 9.5
-
-        c.setFont(font, size)
-        c.drawString(block_x, y - line_h + 3, label)
-        c.drawRightString(MR, y - line_h + 3, value)
-        if not orange_bg:
-            c.setStrokeColor(C_RULE)
+            c.setFillColor(C_BORDER)
+            c.setStrokeColor(C_BORDER)
             c.setLineWidth(0.4)
-            c.line(block_x, y - line_h - 1, MR, y - line_h - 1)
-        y -= line_h + 4
+            c.line(RIGHT_X, ty - LINE_H, RIGHT_X + RIGHT_W, ty - LINE_H)
+            c.setFont('Helvetica', 9)
+            c.setFillColor(C_SECONDARY)
+            c.drawString(RIGHT_X, ty - LINE_H + 4, label)
+            c.setFont('Helvetica-Bold', 9)
+            c.setFillColor(C_TEXT)
+            c.drawRightString(RIGHT_X + RIGHT_W, ty - LINE_H + 4, val_str)
+        ty -= LINE_H + 4
 
-    # Subtotal
-    _tot_row('Subtotal', _tzs(document.get('subtotal', 0)))
-
-    # VAT line
+    tot_row('Subtotal', _tzs(document.get('subtotal', 0)))
     if document.get('is_vat') and float(document.get('vat_amount', 0) or 0) > 0:
         rate = document.get('vat_rate', 18)
-        _tot_row(f'VAT ({rate:.0f}%)', _tzs(document.get('vat_amount', 0)))
+        tot_row(f"VAT ({int(rate)}%)", _tzs(document.get('vat_amount', 0)))
+    ty -= 4
+    tot_row('Total', _tzs(document.get('total', 0)), is_grand=True)
 
-    # Grand total
+    return min(y - SECTION_H, ty) - 20
+
+
+def _terms_section(c, y: float):
+    """Terms & Conditions block — only if there's room."""
+    if y < 110:
+        return
     y -= 4
-    _tot_row('GRAND TOTAL', _tzs(document.get('total', 0)), bold=True, orange_bg=True)
 
-    return y - 12
-
-
-def _payment(c, y: float):
-    """Payment instructions (invoice / proforma), centered."""
-    y -= 8
-    cx = W / 2
-
-    # Separator
-    c.setStrokeColor(C_RULE)
-    c.setLineWidth(0.5)
-    c.line(ML + 60, y, MR - 60, y)
-    y -= 14
-
-    c.setFont('Helvetica', 8)
-    c.setFillColor(C_MUTED)
-    _centre(c, cx, y, 'Payments can be made via NMB Bank A/C:', 'Helvetica', 8)
+    c.setFont('Helvetica-Bold', 9)
+    c.setFillColor(C_TEXT)
+    c.drawString(ML, y, 'Terms & Conditions')
     y -= 16
 
-    c.setFont('Helvetica-Bold', 16)
-    c.setFillColor(C_BLACK)
-    _centre(c, cx, y, '42710089645', 'Helvetica-Bold', 16)
-    y -= 15
+    terms = [
+        'Goods remain the property of Sadakalawe Enterprises until paid in full.',
+        'Full payment is expected within 14 days of invoice issuance.',
+        'A 2% interest charge will be applied to overdue payments monthly.',
+    ]
+    for term in terms:
+        if y < 60:
+            break
+        c.setFont('Helvetica', 8)
+        c.setFillColor(C_SECONDARY)
+        c.drawString(ML + 6, y, '•  ' + term)
+        y -= 13
 
-    c.setFont('Helvetica', 8)
-    c.setFillColor(C_MUTED)
-    _centre(c, cx, y, 'SADAKALAWE ENTERPRISES', 'Helvetica', 8)
 
+def _signature_and_notes(c, y: float, document: dict):
+    """Delivery note: signature line + optional notes."""
+    y -= 10
 
-def _signature_line(c, y: float):
-    """Recipient signature area for delivery notes."""
-    y -= 24
-    sig_w = 200
-    c.setStrokeColor(C_RULE)
+    # Signature lines
+    SIG_W = 200
+    c.setStrokeColor(C_SECONDARY)
     c.setLineWidth(0.8)
-    # Received by
-    c.line(ML, y, ML + sig_w, y)
-    c.setFont('Helvetica', 7.5)
-    c.setFillColor(C_MUTED)
-    c.drawString(ML, y - 11, 'Jina na Sahihi ya Mpokeaji')
-    # Date line
-    c.line(ML + sig_w + 30, y, ML + sig_w + 30 + 120, y)
-    c.drawString(ML + sig_w + 30, y - 11, 'Tarehe')
+    c.line(ML, y, ML + SIG_W, y)
+    c.setFont('Helvetica', 8)
+    c.setFillColor(C_SECONDARY)
+    c.drawString(ML, y - 12, 'Recipient Name & Signature')
 
+    c.line(ML + SIG_W + 32, y, ML + SIG_W + 32 + 130, y)
+    c.drawString(ML + SIG_W + 32, y - 12, 'Date Received')
 
-def _notes(c, notes: str):
-    """Notes block, positioned just above the footer."""
-    y = 56
-    c.setFont('Helvetica-Bold', 7.5)
-    c.setFillColor(C_MUTED)
-    c.drawString(ML, y, 'MAELEZO:')
-    c.setFont('Helvetica', 7.5)
-    c.setFillColor(C_BODY)
-    max_w = BODY - 60
-    words, line = notes.split(), ''
-    for word in words:
-        test = (line + ' ' + word).strip()
-        if c.stringWidth(test, 'Helvetica', 7.5) <= max_w:
-            line = test
-        else:
-            c.drawString(ML + 52, y, line)
-            y -= 10
-            line = word
-    if line:
-        c.drawString(ML + 52, y, line)
+    if document.get('notes'):
+        y -= 36
+        c.setFont('Helvetica-Bold', 8)
+        c.setFillColor(C_TEXT)
+        c.drawString(ML, y, 'Notes:')
+        c.setFont('Helvetica', 8)
+        c.setFillColor(C_SECONDARY)
+        c.drawString(ML + 46, y, _clip(str(document['notes']), 80))
 
 
 def _footer(c, branch: dict):
-    """Orange line + address bar at the very bottom."""
-    # Thick orange rule
+    """Full-width orange footer — company name left, contact right."""
+    FH = 54
     c.setFillColor(C_ORANGE)
-    c.rect(0, 0, W, 26, fill=1, stroke=0)
+    c.rect(0, 0, W, FH, fill=1, stroke=0)
 
-    # White text inside orange bar
-    c.setFont('Helvetica', 7.5)
+    # Left: company name + address
+    c.setFont('Helvetica-Bold', 9.5)
     c.setFillColor(C_WHITE)
-    addr  = branch.get('address', '')
-    line  = f"{addr}   ·   +255 768 596 006   ·   www.sadakalawe.com   ·   TIN 164-334-864"
-    fw    = c.stringWidth(line, 'Helvetica', 7.5)
-    c.drawString((W - fw) / 2, 9, line)
+    c.drawString(ML, FH - 16, 'Sadakalawe Enterprises')
+    c.setFont('Helvetica', 8)
+    addr = branch.get('address', 'Bondeni Street, Opp Mega Complex, Arusha')
+    c.drawString(ML, FH - 30, addr)
+
+    # Right: phone / website / TIN
+    c.setFont('Helvetica', 8)
+    c.setFillColor(C_WHITE)
+    c.drawRightString(MR, FH - 16, '+255 768 596 006  |  info@sadakalawe.com')
+    c.drawRightString(MR, FH - 30, 'www.sadakalawe.com  |  TIN: 164-334-864')
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  DRAW HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _rounded_box(c, x, y, w, h, fill_color, radius=8):
-    c.setFillColor(fill_color)
-    c.setStrokeColor(C_RULE)
-    c.setLineWidth(0.5)
-    c.roundRect(x, y, w, h, radius, fill=1, stroke=1)
-
-
-def _label(c, x, y, text, color):
-    c.setFont('Helvetica-Bold', 7)
-    c.setFillColor(color)
+def _card_header(c, x, y, width, text):
+    """Orange uppercase label + thin orange underline inside a card."""
+    c.setFont('Helvetica-Bold', 8.5)
+    c.setFillColor(C_ORANGE_DK)
     c.drawString(x, y, text)
+    # Thin orange underline
+    c.setStrokeColor(C_ORANGE_LT)
+    c.setLineWidth(0.8)
+    c.line(x, y - 6, x + width, y - 6)
 
 
-def _tbl_header_cell(c, x, y, w, h, text, align):
-    c.setFont('Helvetica-Bold', 8)
-    c.setFillColor(C_WHITE)
-    ty = y + h / 2 - 4
+def _cell_text(c, cell_x, cell_y, cell_w, cell_h, text,
+               font, size, color, align, pad=8):
+    """Draw text inside a table cell."""
+    c.setFont(font, size)
+    c.setFillColor(color)
+    ty = cell_y + cell_h / 2 - 3
     if align == 'left':
-        c.drawString(x + 8, ty, text)
+        c.drawString(cell_x + pad, ty, text)
     elif align == 'right':
-        c.drawRightString(x + w - 8, ty, text)
+        c.drawRightString(cell_x + cell_w - pad, ty, text)
     else:
-        c.drawCentredString(x + w / 2, ty, text)
+        c.drawCentredString(cell_x + cell_w / 2, ty, text)
 
 
-def _text_wrap(c, x, y, text, font, size, max_w):
-    words = text.split()
-    line  = ''
-    for word in words:
-        test = f'{line} {word}'.strip()
-        if c.stringWidth(test, font, size) <= max_w:
-            line = test
-        else:
-            c.drawString(x, y, line)
-            y   -= size + 2
-            line = word
-    if line:
-        c.drawString(x, y, line)
-
-
-def _centre(c, cx, y, text, font, size):
-    w = c.stringWidth(text, font, size)
-    c.drawString(cx - w / 2, y, text)
-
-
-def _clip(text, maxlen):
+def _clip(text: str, maxlen: int) -> str:
     return text[:maxlen] + ('…' if len(text) > maxlen else '')
 
 
 def _tzs(val) -> str:
     try:
-        return f"TZS {float(val):,.0f} /="
+        n = float(val)
+        return f"TZS {n:,.0f}"
     except (TypeError, ValueError):
-        return 'TZS 0 /='
+        return 'TZS 0'
 
 
 def _fmt_date(dt_str) -> str:
@@ -637,3 +776,31 @@ def _fmt_date(dt_str) -> str:
         return f"{dt.day:02d} {months[dt.month - 1]} {dt.year}"
     except Exception:
         return str(dt_str)[:10] if dt_str else ''
+
+
+_METHOD_LABELS = {
+    'cash':          'Cash',
+    'card':          'Card / POS',
+    'mpesa':         'M-Pesa',
+    'airtel_money':  'Airtel Money',
+    'mixx_by_yas':   'Mixx by Yas',
+    'halopesa':      'Halopesa',
+    'bank_transfer': 'Bank Transfer',
+    'credit':        'Credit (Pay Later)',
+    'other':         'Other',
+}
+
+
+def _payment_label(document) -> str:
+    status = document.get('payment_status', 'paid')
+    if status == 'credit':
+        return 'Credit (Pay Later)'
+    if status == 'partial':
+        return 'Partially Paid'
+    method = document.get('payment_method', 'cash') or 'cash'
+    return _METHOD_LABELS.get(method, method.replace('_', ' ').title())
+
+
+def _status_label(document) -> str:
+    status = document.get('payment_status', 'paid')
+    return {'paid': 'Paid', 'credit': 'Credit (Unpaid)', 'partial': 'Partially Paid'}.get(status, status.title())

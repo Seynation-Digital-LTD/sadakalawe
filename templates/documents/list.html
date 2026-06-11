@@ -13,94 +13,164 @@
   </a>
 </div>
 
-<!-- Filters -->
-<div class="card-section mb-4">
-  <form method="GET" class="row g-2 align-items-end">
-    <div class="col-md-3">
-      <label class="form-label small fw-semibold">Search</label>
-      <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm"
-             placeholder="Doc number or customer...">
-    </div>
-    <div class="col-md-2">
-      <label class="form-label small fw-semibold">Type</label>
-      <select name="doc_type" class="form-select form-select-sm">
-        <option value="">All Types</option>
-        {% for key, label in doc_types.items() %}
-        <option value="{{ key }}" {% if doc_type == key %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    {% if current_user.is_admin %}
-    <div class="col-md-2">
-      <label class="form-label small fw-semibold">Branch</label>
-      <select name="branch_id" class="form-select form-select-sm">
-        <option value="">All</option>
-        {% for b in branches %}
-        <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>{{ b.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-md-2">
-      <label class="form-label small fw-semibold">Staff</label>
-      <select name="staff_id" class="form-select form-select-sm">
-        <option value="">All Staff</option>
-        {% for s in staff_list %}
-        <option value="{{ s.id }}" {% if staff_filter|string == s.id|string %}selected{% endif %}>{{ s.full_name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    {% endif %}
-    <div class="col-md-2">
-      <label class="form-label small fw-semibold">From</label>
-      <input type="date" name="date_from" value="{{ date_from }}" class="form-control form-control-sm">
-    </div>
-    <div class="col-md-2">
-      <label class="form-label small fw-semibold">To</label>
-      <input type="date" name="date_to" value="{{ date_to }}" class="form-control form-control-sm">
-    </div>
-    <div class="col-auto d-flex gap-1">
-      <button type="submit" class="btn btn-sm btn-secondary"><i class="bi bi-search"></i></button>
-      <a href="{{ url_for('documents.list') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
+<!-- Quick filter tabs -->
+<div class="doc-tabs mb-3">
+  <a href="{{ url_for('documents.list') }}"
+     class="doc-tab {% if not doc_type and not pay_status %}active{% endif %}">
+    <i class="bi bi-grid-3x3-gap"></i> All
+  </a>
+  <a href="{{ url_for('documents.list', doc_type='invoice') }}"
+     class="doc-tab doc-tab--invoice {% if doc_type == 'invoice' and not pay_status %}active{% endif %}">
+    <i class="bi bi-receipt"></i> Invoices
+  </a>
+  <a href="{{ url_for('documents.list', doc_type='proforma') }}"
+     class="doc-tab doc-tab--proforma {% if doc_type == 'proforma' %}active{% endif %}">
+    <i class="bi bi-file-earmark-text"></i> Proformas
+  </a>
+  <a href="{{ url_for('documents.list', doc_type='delivery_note') }}"
+     class="doc-tab doc-tab--dn {% if doc_type == 'delivery_note' %}active{% endif %}">
+    <i class="bi bi-truck"></i> Delivery Notes
+  </a>
+  <a href="{{ url_for('documents.list', doc_type='invoice', payment_status='paid') }}"
+     class="doc-tab doc-tab--paid {% if doc_type == 'invoice' and pay_status == 'paid' %}active{% endif %}">
+    <i class="bi bi-check-circle-fill"></i> Paid Invoices
+  </a>
+  <a href="{{ url_for('documents.list', doc_type='invoice', payment_status='credit') }}"
+     class="doc-tab doc-tab--credit {% if pay_status == 'credit' %}active{% endif %}">
+    <i class="bi bi-clock-history"></i> Credit
+  </a>
+</div>
+
+<!-- Search + Advanced Filters -->
+<div class="card-section mb-3 py-3">
+  <form method="GET" id="filter-form">
+    <input type="hidden" name="doc_type" value="{{ doc_type }}">
+    <input type="hidden" name="payment_status" value="{{ pay_status }}">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" name="q" value="{{ q }}" class="form-control"
+                 placeholder="Search doc number or customer…" autofocus>
+        </div>
+      </div>
+      {% if current_user.is_admin %}
+      <div class="col-md-2">
+        <select name="branch_id" class="form-select form-select-sm">
+          <option value="">All Branches</option>
+          {% for b in branches %}
+          <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>
+            {{ b.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="staff_id" class="form-select form-select-sm">
+          <option value="">All Staff</option>
+          {% for s in staff_list %}
+          <option value="{{ s.id }}" {% if staff_filter|string == s.id|string %}selected{% endif %}>
+            {{ s.full_name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="col-md-2">
+        <input type="date" name="date_from" value="{{ date_from }}"
+               class="form-control form-control-sm" placeholder="From date">
+      </div>
+      <div class="col-md-2">
+        <input type="date" name="date_to" value="{{ date_to }}"
+               class="form-control form-control-sm" placeholder="To date">
+      </div>
+      <div class="col-auto d-flex gap-1">
+        <button type="submit" class="btn btn-sm btn-secondary">
+          <i class="bi bi-funnel-fill"></i>
+        </button>
+        <a href="{{ url_for('documents.list') }}" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-x-lg"></i>
+        </a>
+      </div>
     </div>
   </form>
 </div>
 
-<div class="card-section">
-  <table class="data-table">
+<!-- Documents table -->
+<div class="card-section" style="overflow-x:auto">
+  <table class="data-table" style="min-width:620px">
     <thead>
       <tr>
-        <th>Number</th><th>Type</th><th>Customer</th>
-        {% if current_user.is_admin %}<th>Branch</th><th>Staff</th>{% endif %}
-        <th class="text-end">Total</th><th>Date</th><th>Actions</th>
+        <th>Document</th>
+        <th>Customer</th>
+        {% if current_user.is_admin %}<th>Branch</th>{% endif %}
+        <th class="text-end">Total (TZS)</th>
+        <th>Payment</th>
+        <th>Date</th>
+        <th style="width:90px">Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for d in docs %}
+      {% set method_map = {'cash':'Cash','card':'Card','mpesa':'M-Pesa','airtel_money':'Airtel','mixx_by_yas':'Mixx','halopesa':'Halo','bank_transfer':'Bank','credit':'Credit','other':'Other'} %}
       <tr>
         <td>
-          <a href="{{ url_for('documents.view', doc_id=d.id) }}" class="doc-link">{{ d.doc_number }}</a>
+          <div class="d-flex flex-column gap-1">
+            <a href="{{ url_for('documents.view', doc_id=d.id) }}" class="doc-link fw-semibold">
+              {{ d.doc_number }}
+            </a>
+            <span class="badge-doctype badge-{{ d.doc_type }}" style="font-size:10px;width:fit-content">
+              {{ d.doc_type | replace('_',' ') | title }}
+            </span>
+            {% if d.batch_id %}
+            <a href="{{ url_for('documents.view_batch', batch_id=d.batch_id) }}"
+               class="small text-muted" style="font-size:10px;text-decoration:none" title="View all 3 documents in this sale">
+              <i class="bi bi-collection"></i> View batch
+            </a>
+            {% endif %}
+          </div>
         </td>
-        <td><span class="badge-doctype badge-{{ d.doc_type }}">{{ d.doc_type | replace('_',' ') | title }}</span></td>
-        <td>{{ d.customer_name or '<em class="text-muted">Walk-in</em>' | safe }}</td>
+        <td>
+          {% if d.customer_name %}
+            <span class="fw-medium">{{ d.customer_name }}</span>
+          {% else %}
+            <em class="text-muted">Walk-in</em>
+          {% endif %}
+          {% if current_user.is_admin %}
+          <div class="text-muted" style="font-size:11px">{{ d.staff_name }}</div>
+          {% endif %}
+        </td>
         {% if current_user.is_admin %}
-        <td><span class="badge-branch">{{ d.branch_name }}</span></td>
-        <td class="small text-muted">{{ d.staff_name }}</td>
+        <td class="text-muted small">{{ d.branch_name }}</td>
         {% endif %}
-        <td class="text-end fw-semibold">TZS {{ "{:,.0f}".format(d.total or 0) }}</td>
-        <td class="text-muted small">{{ d.created_at[:16] }}</td>
+        <td class="text-end fw-semibold">{{ "{:,.0f}".format(d.total or 0) }}</td>
+        <td>
+          {% if d.payment_status == 'credit' %}
+          <span class="badge-status badge-warning">Credit</span>
+          {% elif d.payment_status == 'partial' %}
+          <span class="badge-status badge-warning">Partial</span>
+          {% else %}
+          <span class="badge-status badge-success">
+            {{ method_map.get(d.payment_method or 'cash', 'Paid') }}
+          </span>
+          {% endif %}
+        </td>
+        <td class="text-muted small" style="white-space:nowrap">{{ d.created_at[:10] }}</td>
         <td>
           <div class="d-flex gap-1">
             <a href="{{ url_for('documents.view', doc_id=d.id) }}"
-               class="btn btn-xs btn-outline-secondary" title="View"><i class="bi bi-eye"></i></a>
+               class="btn btn-xs btn-outline-secondary" title="View">
+              <i class="bi bi-eye"></i>
+            </a>
             <a href="{{ url_for('documents.download_pdf', doc_id=d.id) }}" target="_blank"
-               class="btn btn-xs btn-outline-danger" title="PDF"><i class="bi bi-file-pdf"></i></a>
-            {% if current_user.is_admin %}
-            <form method="POST" action="{{ url_for('documents.delete', doc_id=d.id) }}"
-                  onsubmit="return confirm('Delete {{ d.doc_number }}?')">
-              <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
+               class="btn btn-xs btn-outline-danger" title="PDF">
+              <i class="bi bi-file-pdf"></i>
+            </a>
+            {% if current_user.is_admin and d.doc_type == 'invoice' and d.payment_status in ('credit','partial') %}
+            <a href="{{ url_for('credits.detail', doc_id=d.id) }}"
+               class="btn btn-xs btn-outline-warning" title="Record Payment">
+              <i class="bi bi-cash"></i>
+            </a>
             {% endif %}
           </div>
         </td>
@@ -108,7 +178,9 @@
       {% else %}
       <tr>
         <td colspan="8" class="text-center text-muted py-5">
-          No documents found. <a href="{{ url_for('documents.new') }}">Create one</a>.
+          <i class="bi bi-inbox" style="font-size:2rem;opacity:.3"></i>
+          <p class="mt-2">No documents found.</p>
+          <a href="{{ url_for('documents.new') }}" class="btn btn-sm btn-primary">Create one</a>
         </td>
       </tr>
       {% endfor %}
