@@ -28,7 +28,7 @@
 
   {# Build share text #}
   {% set method_map = {'cash':'Cash','card':'Card/POS','mpesa':'M-Pesa','airtel_money':'Airtel Money','mixx_by_yas':'Mixx by Yas','halopesa':'Halopesa','bank_transfer':'Bank Transfer','credit':'Credit','other':'Other'} %}
-  {% set pay_method = method_map.get(doc.get('payment_method','cash'), 'Cash') %}
+  {% set pay_method = method_map.get(doc.payment_method or 'cash', 'Cash') %}
   {% set share_text %}*Sadakalawe Enterprises*
 {{ doc_label }}: {{ doc.doc_number }}
 Customer: {{ doc.customer_name or 'Walk-in' }}

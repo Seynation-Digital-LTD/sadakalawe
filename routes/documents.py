@@ -257,7 +257,7 @@ def download_zip():
             customer = (query_db("SELECT * FROM customers WHERE id=?",
                                  (doc['customer_id'],), one=True)
                         if doc['customer_id']
-                        else ({'name': doc['walkin_name']} if doc.get('walkin_name') else None))
+                        else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
             items  = query_db(
                 "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
             branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
@@ -298,7 +298,7 @@ def download_merged():
         customer = (query_db("SELECT * FROM customers WHERE id=?",
                              (doc['customer_id'],), one=True)
                     if doc['customer_id']
-                    else ({'name': doc['walkin_name']} if doc.get('walkin_name') else None))
+                    else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
         items  = query_db(
             "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
         branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
@@ -310,7 +310,7 @@ def download_merged():
         reader = PdfReader(pdf_buf)
         for page in reader.pages:
             writer.add_page(page)
-        if not customer_name and doc.get('customer_name'):
+        if not customer_name and doc['customer_name']:
             customer_name = doc['customer_name']
 
     buf = BytesIO()
@@ -356,7 +356,7 @@ def view(doc_id):
         "SELECT * FROM payments WHERE document_id=? ORDER BY payment_date DESC", (doc_id,))
     # Sibling docs in the same batch (the other 2 related docs from this sale)
     siblings = []
-    if doc.get('batch_id'):
+    if doc['batch_id']:
         siblings = query_db("""
             SELECT id, doc_number, doc_type FROM documents
             WHERE batch_id=? AND id!=?
@@ -376,7 +376,7 @@ def download_pdf(doc_id):
     customer = (query_db("SELECT * FROM customers WHERE id=?",
                          (doc['customer_id'],), one=True)
                 if doc['customer_id']
-                else ({'name': doc['walkin_name']} if doc.get('walkin_name') else None))
+                else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
     items  = query_db(
         "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
     branch = {'name': doc['branch_name'], 'address': doc['branch_address'],

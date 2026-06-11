@@ -13,26 +13,51 @@
   </a>
 </div>
 
-<div class="card-section" style="max-width:600px">
-  <form method="POST">
+<div class="card-section" style="max-width:680px">
+  <form method="POST" id="product-form">
+
+    <!-- Category row -->
     <div class="row g-3 mb-3">
       <div class="col-md-6">
         <label class="form-label fw-semibold">Category <span class="text-danger">*</span></label>
-        <select name="brand_category" class="form-select" required>
+        <select name="category_id" id="cat-select" class="form-select" required>
+          <option value="">— Select category —</option>
           {% for cat in categories %}
-          <option value="{{ cat }}"
-            {% if product and product.brand_category == cat %}selected
-            {% elif not product and cat == 'Accessories' %}selected{% endif %}>
-            {{ cat }}
+          <option value="{{ cat.id }}"
+            {% if product and product.category_id == cat.id %}selected
+            {% endif %}>
+            {{ cat.name }}
           </option>
           {% endfor %}
         </select>
       </div>
       <div class="col-md-6">
+        <label class="form-label fw-semibold">Subcategory</label>
+        <select name="subcategory_id" id="subcat-select" class="form-select">
+          <option value="">— Select subcategory —</option>
+          {% for s in subcategories %}
+          <option value="{{ s.id }}"
+                  data-cat="{{ s.category_id }}"
+            {% if product and product.subcategory_id == s.id %}selected{% endif %}>
+            {{ s.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <!-- Model + Description -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-7">
         <label class="form-label fw-semibold">Model / Name <span class="text-danger">*</span></label>
         <input type="text" name="model" class="form-control"
                value="{{ product.model if product else '' }}" required autofocus
-               placeholder="e.g. MacBook Air M3 13-inch">
+               placeholder="e.g. Anker 65W GaN Charger">
+      </div>
+      <div class="col-md-5">
+        <label class="form-label fw-semibold">SKU</label>
+        <input type="text" name="sku" class="form-control"
+               value="{{ product.sku if product else '' }}" placeholder="Optional">
       </div>
     </div>
 
@@ -40,9 +65,10 @@
       <label class="form-label fw-semibold">Description</label>
       <input type="text" name="description" class="form-control"
              value="{{ product.description if product else '' }}"
-             placeholder="Optional details (color, spec, etc.)">
+             placeholder="Optional details — color, spec, variant, etc.">
     </div>
 
+    <!-- Price + Stock + Alert -->
     <div class="row g-3 mb-3">
       <div class="col-md-4">
         <label class="form-label fw-semibold">Price (TZS) <span class="text-danger">*</span></label>
@@ -56,9 +82,10 @@
                value="{{ product.stock_count if product else 0 }}" min="0">
       </div>
       <div class="col-md-4">
-        <label class="form-label fw-semibold">SKU</label>
-        <input type="text" name="sku" class="form-control"
-               value="{{ product.sku if product else '' }}" placeholder="Optional">
+        <label class="form-label fw-semibold">Low Stock Alert</label>
+        <input type="number" name="low_stock_alert" class="form-control"
+               value="{{ product.low_stock_alert if product else 3 }}" min="0"
+               title="Warn when stock falls to this number">
       </div>
     </div>
 
@@ -80,4 +107,39 @@
     </div>
   </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  // All subcategories keyed by category_id
+  const allSubs = {};
+  document.querySelectorAll('#subcat-select option[data-cat]').forEach(opt => {
+    const cid = opt.dataset.cat;
+    if (!allSubs[cid]) allSubs[cid] = [];
+    allSubs[cid].push({ id: opt.value, name: opt.textContent.trim() });
+  });
+
+  const catSel    = document.getElementById('cat-select');
+  const subcatSel = document.getElementById('subcat-select');
+  const savedSubcat = subcatSel.value; // preserve edit-mode selection
+
+  function filterSubs() {
+    const cid = catSel.value;
+    const subs = allSubs[cid] || [];
+    subcatSel.innerHTML = '<option value="">— Select subcategory —</option>';
+    subs.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      if (s.id === savedSubcat) opt.selected = true;
+      subcatSel.appendChild(opt);
+    });
+    subcatSel.disabled = subs.length === 0;
+  }
+
+  catSel.addEventListener('change', filterSubs);
+  filterSubs(); // run on page load to populate subcats for edit mode
+})();
+</script>
 {% endblock %}

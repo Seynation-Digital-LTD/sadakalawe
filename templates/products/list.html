@@ -13,51 +13,99 @@
   </a>
 </div>
 
-<div class="card-section mb-4">
-  <form method="GET" class="row g-2">
+<!-- Category tab bar -->
+<div class="doc-tabs mb-3" style="flex-wrap:wrap">
+  <a href="{{ url_for('products.list') }}"
+     class="doc-tab {% if not cat_id %}active{% endif %}">
+    <i class="bi bi-grid-3x3-gap"></i> All
+  </a>
+  {% for cat in categories %}
+  <a href="{{ url_for('products.list', cat_id=cat.id) }}"
+     class="doc-tab {% if cat_id|string == cat.id|string %}active{% endif %}"
+     style="{% if cat_id|string == cat.id|string %}border-color:var(--c-orange);color:var(--c-orange){% endif %}">
+    <i class="bi {{ cat.icon }}"></i> {{ cat.name }}
+  </a>
+  {% endfor %}
+</div>
+
+<!-- Search + subcategory filter -->
+<div class="card-section mb-3 py-3">
+  <form method="GET" class="row g-2 align-items-end">
+    <input type="hidden" name="cat_id" value="{{ cat_id }}">
     <div class="col-md-4">
-      <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="Search model, description...">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input type="text" name="q" value="{{ q }}" class="form-control"
+               placeholder="Search model, description, SKU…" autofocus>
+      </div>
     </div>
+    {% if cat_id and subcategories %}
     <div class="col-md-3">
-      <select name="category" class="form-select">
-        <option value="">All Categories</option>
-        {% for cat in categories %}
-        <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat }}</option>
+      <select name="subcat_id" class="form-select form-select-sm">
+        <option value="">All Subcategories</option>
+        {% for s in subcategories %}
+        <option value="{{ s.id }}" {% if subcat_id|string == s.id|string %}selected{% endif %}>
+          {{ s.name }}
+        </option>
         {% endfor %}
       </select>
     </div>
+    {% endif %}
     <div class="col-auto d-flex align-items-center gap-2">
       <div class="form-check mb-0">
         <input type="checkbox" name="inactive" id="show-inactive" class="form-check-input"
                value="1" {% if show_inactive %}checked{% endif %}>
-        <label for="show-inactive" class="form-check-label">Show inactive</label>
+        <label for="show-inactive" class="form-check-label small">Show inactive</label>
       </div>
-      <button type="submit" class="btn btn-secondary"><i class="bi bi-search"></i> Search</button>
-      <a href="{{ url_for('products.list') }}" class="btn btn-outline-secondary">Clear</a>
+      <button type="submit" class="btn btn-sm btn-secondary"><i class="bi bi-funnel-fill"></i></button>
+      <a href="{{ url_for('products.list') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-lg"></i></a>
     </div>
   </form>
 </div>
 
-<div class="card-section">
-  <table class="data-table">
+<!-- Products table -->
+<div class="card-section" style="overflow-x:auto">
+  <table class="data-table" style="min-width:640px">
     <thead>
       <tr>
-        <th>Category</th><th>Model</th><th>Description</th>
-        <th>SKU</th><th class="text-end">Price (TZS)</th>
-        <th class="text-end">Stock</th><th>Status</th><th>Actions</th>
+        <th>Category</th>
+        <th>Subcategory</th>
+        <th>Model / Name</th>
+        <th>Description</th>
+        <th>SKU</th>
+        <th class="text-end">Price (TZS)</th>
+        <th class="text-end">Stock</th>
+        <th>Status</th>
+        <th style="width:60px">Actions</th>
       </tr>
     </thead>
     <tbody>
+      {% set ns = namespace(last_cat='') %}
       {% for p in products %}
       <tr class="{{ 'text-muted' if not p.is_active else '' }}">
-        <td><span class="badge-category">{{ p.brand_category }}</span></td>
+        <td>
+          {% if p.category_name %}
+          <span class="badge-category">
+            <i class="bi {{ p.category_icon or 'bi-tag' }} me-1"></i>{{ p.category_name }}
+          </span>
+          {% else %}
+          <span class="text-muted small">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if p.subcategory_name %}
+          <span class="text-muted small">{{ p.subcategory_name }}</span>
+          {% else %}
+          <span class="text-muted small">—</span>
+          {% endif %}
+        </td>
         <td class="fw-semibold">{{ p.model }}</td>
         <td class="text-muted small">{{ p.description or '—' }}</td>
-        <td><code>{{ p.sku or '—' }}</code></td>
+        <td><code class="small">{{ p.sku or '—' }}</code></td>
         <td class="text-end fw-semibold">{{ "{:,.0f}".format(p.price or 0) }}</td>
         <td class="text-end">
-          <span class="{{ 'text-danger fw-bold' if p.stock_count <= 0 else ('text-warning' if p.stock_count <= 3 else '') }}">
-            {{ p.stock_count }}
+          <span class="{{ 'text-danger fw-bold' if (p.stock_count or 0) <= 0 else ('text-warning fw-semibold' if (p.stock_count or 0) <= (p.low_stock_alert or 3) else '') }}">
+            {{ p.stock_count or 0 }}
           </span>
         </td>
         <td>
@@ -76,8 +124,10 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="8" class="text-center text-muted py-5">
-          No products found. <a href="{{ url_for('products.new') }}">Add one</a>.
+        <td colspan="9" class="text-center text-muted py-5">
+          <i class="bi bi-inbox" style="font-size:2rem;opacity:.3"></i>
+          <p class="mt-2">No products found.</p>
+          <a href="{{ url_for('products.new') }}" class="btn btn-sm btn-primary">Add one</a>
         </td>
       </tr>
       {% endfor %}

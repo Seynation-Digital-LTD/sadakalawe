@@ -170,13 +170,17 @@ document.addEventListener('DOMContentLoaded', () => {
           width: rect.width + 'px',
         });
         data.forEach(p => {
+          const catLabel = p.subcategory_name
+            ? `${p.category_name} › ${p.subcategory_name}`
+            : (p.category_name || '');
+          const descLine = catLabel ? `${catLabel} — ${p.model}` : p.model;
           const div = document.createElement('div');
           div.className = 'ac-item';
           div.innerHTML =
-            `<div class="ac-item__main">${esc(p.brand_category)} — ${esc(p.model)}</div>` +
-            `<div class="ac-item__sub">TZS ${fmt(p.price)} &nbsp;·&nbsp; Hisa: ${p.stock_count ?? '—'}</div>`;
+            `<div class="ac-item__main">${esc(p.model)}</div>` +
+            `<div class="ac-item__sub">${esc(catLabel)}${catLabel ? ' &nbsp;·&nbsp; ' : ''}TZS ${fmt(p.price)} &nbsp;·&nbsp; Stock: ${p.stock_count ?? '—'}</div>`;
           div.addEventListener('mousedown', () => {
-            tr.querySelector('.desc-inp').value  = `${p.brand_category} — ${p.model}`;
+            tr.querySelector('.desc-inp').value  = descLine;
             tr.querySelector('.pid-inp').value   = p.id;
             tr.querySelector('.price-inp').value = p.price;
             updateRow(tr); recalc(); hideProd();
