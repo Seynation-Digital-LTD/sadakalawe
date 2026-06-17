@@ -6,6 +6,7 @@ from database import execute_db, query_db
 from services.numbering import get_next_number
 from services.pdf_generator import generate_pdf
 from config import VAT_RATE, DOC_TYPE_LABELS
+from routes.auth import perm_required
 from datetime import datetime, date
 from io import BytesIO
 from pypdf import PdfWriter, PdfReader
@@ -32,6 +33,7 @@ def _fetch_doc_full(doc_id):
 
 def _parse_items(form):
     descriptions = form.getlist('item_description[]')
+    specs_list   = form.getlist('item_specs[]')
     quantities   = form.getlist('item_qty[]')
     unit_prices  = form.getlist('item_price[]')
     product_ids  = form.getlist('item_product_id[]')
@@ -45,8 +47,10 @@ def _parse_items(form):
             price = float(unit_prices[i] or 0)
         except (IndexError, ValueError):
             continue
+        specs = specs_list[i].strip() if i < len(specs_list) else ''
+        full_desc = (desc + chr(10) + specs) if specs else desc
         items.append({
-            'description': desc,
+            'description': full_desc,
             'quantity':    qty,
             'unit_price':  price,
             'line_total':  round(qty * price, 2),
@@ -58,7 +62,7 @@ def _parse_items(form):
 def _deduct_stock(items, branch_id, invoice_id):
     """Deduct sold quantities from per-branch stock and record movements."""
     for item in items:
-        if not item.get('product_id'):
+        if not item['product_id']:
             continue
         qty = abs(item['quantity'])
         pid = item['product_id']
@@ -147,6 +151,7 @@ def list():
 
 @bp.route('/new', methods=['GET', 'POST'])
 @login_required
+@perm_required('create_documents')
 def new():
     branches = query_db("SELECT * FROM branches ORDER BY name")
     default_branch_id = current_user.branch_id or (branches[0]['id'] if branches else None)
@@ -244,6 +249,7 @@ def result():
 
 @bp.route('/zip')
 @login_required
+@perm_required('download_documents')
 def download_zip():
     ids_str = request.args.get('ids', '')
     ids = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
@@ -281,6 +287,7 @@ def download_zip():
 
 @bp.route('/merged')
 @login_required
+@perm_required('download_documents')
 def download_merged():
     """Download all selected documents as a single merged PDF."""
     ids_str = request.args.get('ids', '')
@@ -369,6 +376,7 @@ def view(doc_id):
 
 @bp.route('/<int:doc_id>/pdf')
 @login_required
+@perm_required('download_documents')
 def download_pdf(doc_id):
     doc = _fetch_doc_full(doc_id)
     if not doc:
@@ -392,12 +400,87 @@ def download_pdf(doc_id):
 
 @bp.route('/<int:doc_id>/delete', methods=['POST'])
 @login_required
+@perm_required('void_documents')
 def delete(doc_id):
-    if not current_user.is_admin:
-        flash('Admin access required.', 'danger')
-        return redirect(url_for('documents.list'))
     doc = query_db("SELECT doc_number FROM documents WHERE id=?", (doc_id,), one=True)
     if doc:
         execute_db("DELETE FROM documents WHERE id=?", (doc_id,))
         flash(f'Document {doc["doc_number"]} deleted.', 'success')
     return redirect(url_for('documents.list'))
+
+
+@bp.route('/<int:doc_id>/convert', methods=['POST'])
+@login_required
+@perm_required('create_documents')
+def convert(doc_id):
+    """Convert a proforma → invoice, or invoice → delivery note."""
+    source = query_db("""
+        SELECT d.*, b.short_code AS branch_code
+        FROM documents d JOIN branches b ON d.branch_id = b.id
+        WHERE d.id=?
+    """, (doc_id,), one=True)
+    if not source:
+        abort(404)
+
+    src_type = source['doc_type']
+    if src_type == 'proforma':
+        target_type = 'invoice'
+    elif src_type == 'invoice':
+        target_type = 'delivery_note'
+    else:
+        flash('Only proformas and invoices can be converted.', 'danger')
+        return redirect(url_for('documents.view', doc_id=doc_id))
+
+    items = query_db(
+        "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
+
+    doc_number = get_next_number(source['branch_id'], target_type, date.today().year)
+
+    # Payment details only relevant for proforma → invoice
+    if target_type == 'invoice':
+        pay_method     = request.form.get('payment_method', 'cash')
+        pay_status     = 'credit' if pay_method == 'credit' else 'paid'
+        credit_due     = request.form.get('credit_due_date', '').strip() or None
+        amount_paid    = 0.0 if pay_status == 'credit' else float(source['total'])
+        actual_method  = request.form.get('credit_method', 'cash') if pay_status == 'credit' else pay_method
+        notes          = request.form.get('notes', source['notes'] or '').strip() or None
+    else:
+        pay_method    = source['payment_method']
+        pay_status    = source['payment_status']
+        credit_due    = source['credit_due_date']
+        amount_paid   = source['amount_paid']
+        actual_method = pay_method
+        notes         = request.form.get('notes', source['notes'] or '').strip() or None
+
+    new_id = execute_db("""
+        INSERT INTO documents
+          (doc_number, doc_type, branch_id, customer_id, created_by,
+           is_vat, vat_rate, efd_reference, subtotal, vat_amount, total,
+           notes, validity_days, status, payment_status, payment_method,
+           amount_paid, credit_due_date, walkin_name)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, (
+        doc_number, target_type, source['branch_id'], source['customer_id'],
+        current_user.id,
+        source['is_vat'], source['vat_rate'], None,
+        source['subtotal'], source['vat_amount'], source['total'],
+        notes, source['validity_days'], 'final',
+        pay_status, actual_method, amount_paid, credit_due,
+        source['walkin_name'],
+    ))
+
+    for item in items:
+        execute_db("""
+            INSERT INTO document_items
+              (document_id, product_id, description, quantity, unit_price, line_total)
+            VALUES (?,?,?,?,?,?)
+        """, (new_id, item['product_id'], item['description'],
+               item['quantity'], item['unit_price'], item['line_total']))
+
+    # Deduct stock when converting proforma → invoice
+    if target_type == 'invoice':
+        _deduct_stock(items, source['branch_id'], new_id)
+
+    type_labels = {'invoice': 'Invoice', 'delivery_note': 'Delivery Note'}
+    flash(f'Converted to {type_labels[target_type]}: {doc_number}', 'success')
+    return redirect(url_for('documents.view', doc_id=new_id))

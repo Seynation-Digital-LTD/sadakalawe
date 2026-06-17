@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
 from database import execute_db, query_db
+from routes.auth import perm_required
 
 bp = Blueprint('products', __name__, url_prefix='/products')
 
@@ -19,6 +20,7 @@ def _cat_map(categories):
 
 @bp.route('/')
 @login_required
+@perm_required('view_products')
 def list():
     q           = request.args.get('q', '').strip()
     cat_id      = request.args.get('cat_id', '')
@@ -68,6 +70,7 @@ def list():
 
 @bp.route('/new', methods=['GET', 'POST'])
 @login_required
+@perm_required('manage_products')
 def new():
     categories    = _get_categories()
     subcategories = _get_subcategories()
@@ -88,8 +91,9 @@ def new():
 
         pid = execute_db("""
             INSERT INTO products
-              (brand_category, category_id, subcategory_id, model, description, price, stock_count, sku)
-            VALUES (?,?,?,?,?,?,?,?)
+              (brand_category, category_id, subcategory_id, model, description,
+               price, cost_price, stock_count, sku)
+            VALUES (?,?,?,?,?,?,?,?,?)
         """, (
             brand_category,
             int(cat_id),
@@ -97,6 +101,7 @@ def new():
             model,
             request.form.get('description', '').strip(),
             float(request.form.get('price', 0) or 0),
+            float(request.form.get('cost_price', 0) or 0),
             int(request.form.get('stock_count', 0) or 0),
             request.form.get('sku', '').strip() or None,
         ))
@@ -118,6 +123,7 @@ def new():
 
 @bp.route('/<int:product_id>/edit', methods=['GET', 'POST'])
 @login_required
+@perm_required('manage_products')
 def edit(product_id):
     product = query_db("""
         SELECT p.*, pc.name AS category_name, ps.name AS subcategory_name
@@ -145,7 +151,7 @@ def edit(product_id):
         execute_db("""
             UPDATE products SET
               brand_category=?, category_id=?, subcategory_id=?,
-              model=?, description=?, price=?, stock_count=?, sku=?,
+              model=?, description=?, price=?, cost_price=?, stock_count=?, sku=?,
               is_active=?, updated_at=datetime('now','localtime')
             WHERE id=?
         """, (
@@ -155,6 +161,7 @@ def edit(product_id):
             model,
             request.form.get('description', '').strip(),
             float(request.form.get('price', 0) or 0),
+            float(request.form.get('cost_price', 0) or 0),
             int(request.form.get('stock_count', 0) or 0),
             request.form.get('sku', '').strip() or None,
             is_active,

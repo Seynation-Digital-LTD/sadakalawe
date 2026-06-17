@@ -1,12 +1,14 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
 from database import get_db, execute_db, query_db
+from routes.auth import perm_required
 
 bp = Blueprint('customers', __name__, url_prefix='/customers')
 
 
 @bp.route('/')
 @login_required
+@perm_required('view_customers')
 def list():
     q = request.args.get('q', '').strip()
     branch_filter = request.args.get('branch_id', '')
@@ -38,6 +40,7 @@ def list():
 
 @bp.route('/new', methods=['GET', 'POST'])
 @login_required
+@perm_required('manage_customers')
 def new():
     branches = query_db("SELECT * FROM branches ORDER BY name")
     if request.method == 'POST':
@@ -90,6 +93,7 @@ def view(customer_id):
 
 @bp.route('/<int:customer_id>/edit', methods=['GET', 'POST'])
 @login_required
+@perm_required('manage_customers')
 def edit(customer_id):
     customer = query_db("SELECT * FROM customers WHERE id=?", (customer_id,), one=True)
     if not customer:

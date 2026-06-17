@@ -21,7 +21,7 @@
       <div class="col-md-6">
         <label class="form-label fw-semibold">Category <span class="text-danger">*</span></label>
         <select name="category_id" id="cat-select" class="form-select" required>
-          <option value="">— Select category —</option>
+          <option value="">Select category</option>
           {% for cat in categories %}
           <option value="{{ cat.id }}"
             {% if product and product.category_id == cat.id %}selected
@@ -34,7 +34,7 @@
       <div class="col-md-6">
         <label class="form-label fw-semibold">Subcategory</label>
         <select name="subcategory_id" id="subcat-select" class="form-select">
-          <option value="">— Select subcategory —</option>
+          <option value="">Select subcategory</option>
           {% for s in subcategories %}
           <option value="{{ s.id }}"
                   data-cat="{{ s.category_id }}"
@@ -65,23 +65,34 @@
       <label class="form-label fw-semibold">Description</label>
       <input type="text" name="description" class="form-control"
              value="{{ product.description if product else '' }}"
-             placeholder="Optional details — color, spec, variant, etc.">
+             placeholder="Optional details: color, spec, variant, etc.">
     </div>
 
-    <!-- Price + Stock + Alert -->
+    <!-- Price + Cost + Stock + Alert -->
     <div class="row g-3 mb-3">
-      <div class="col-md-4">
-        <label class="form-label fw-semibold">Price (TZS) <span class="text-danger">*</span></label>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">Selling Price (TZS) <span class="text-danger">*</span></label>
         <input type="number" name="price" class="form-control"
                value="{{ product.price if product else '' }}"
                min="0" step="1000" required placeholder="0">
       </div>
-      <div class="col-md-4">
+      {% if current_user.can('view_cost_price') %}
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">
+          Buying / Cost Price
+          <i class="bi bi-eye-slash text-muted ms-1" title="Hidden from staff without permission"></i>
+        </label>
+        <input type="number" name="cost_price" class="form-control"
+               value="{{ product.cost_price if product else '' }}"
+               min="0" step="1000" placeholder="0">
+      </div>
+      {% endif %}
+      <div class="col-md-3">
         <label class="form-label fw-semibold">Stock Count</label>
         <input type="number" name="stock_count" class="form-control"
                value="{{ product.stock_count if product else 0 }}" min="0">
       </div>
-      <div class="col-md-4">
+      <div class="col-md-3">
         <label class="form-label fw-semibold">Low Stock Alert</label>
         <input type="number" name="low_stock_alert" class="form-control"
                value="{{ product.low_stock_alert if product else 3 }}" min="0"
@@ -127,7 +138,7 @@
   function filterSubs() {
     const cid = catSel.value;
     const subs = allSubs[cid] || [];
-    subcatSel.innerHTML = '<option value="">— Select subcategory —</option>';
+    subcatSel.innerHTML = '<option value="">Select subcategory</option>';
     subs.forEach(s => {
       const opt = document.createElement('option');
       opt.value = s.id;

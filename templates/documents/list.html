@@ -104,7 +104,7 @@
         <th>Document</th>
         <th>Customer</th>
         {% if current_user.is_admin %}<th>Branch</th>{% endif %}
-        <th class="text-end">Total (TZS)</th>
+        {% if current_user.can('view_sales_amounts') %}<th class="text-end">Total (TZS)</th>{% endif %}
         <th>Payment</th>
         <th>Date</th>
         <th style="width:90px">Actions</th>
@@ -143,7 +143,9 @@
         {% if current_user.is_admin %}
         <td class="text-muted small">{{ d.branch_name }}</td>
         {% endif %}
+        {% if current_user.can('view_sales_amounts') %}
         <td class="text-end fw-semibold">{{ "{:,.0f}".format(d.total or 0) }}</td>
+        {% endif %}
         <td>
           {% if d.payment_status == 'credit' %}
           <span class="badge-status badge-warning">Credit</span>

@@ -81,7 +81,7 @@
         <tr class="{% if p.stock == 0 %}row-out-of-stock{% elif is_low %}row-low-stock{% endif %}">
           <td><span class="badge-category">{{ p.brand_category }}</span></td>
           <td class="fw-600">{{ p.model }}{% if p.sku %} <span class="text-muted" style="font-size:12px">· {{ p.sku }}</span>{% endif %}</td>
-          <td class="text-muted">{{ p.sku or '—' }}</td>
+          <td class="text-muted">{{ p.sku or '-' }}</td>
           <td class="text-end">{{ '{:,.0f}'.format(p.price) }}</td>
           <td class="text-end">
             <strong class="{% if p.stock == 0 %}text-danger{% elif is_low %}text-warning-dark{% else %}text-success{% endif %}" style="font-size:15px">

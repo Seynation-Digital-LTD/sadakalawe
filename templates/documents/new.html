@@ -6,7 +6,7 @@
 <div class="page-header">
   <div>
     <h2 class="page-title">Create New Document</h2>
-    <p class="page-sub">Fill once — Invoice, Proforma &amp; Delivery Note generated together</p>
+    <p class="page-sub">Fill once: Invoice, Proforma &amp; Delivery Note generated together</p>
   </div>
   <a href="{{ url_for('documents.list') }}" class="btn btn-ghost">
     <i class="bi bi-clock-history"></i> Sales Log
@@ -182,7 +182,7 @@
         <thead>
           <tr>
             <th style="width:26px">#</th>
-            <th>Item Description</th>
+            <th>Item Description <span style="font-weight:400;color:#9ca3af;font-size:10px">(+ specs below)</span></th>
             <th style="width:80px;text-align:right">Qty</th>
             <th style="width:160px;text-align:right">Price (TZS)</th>
             <th style="width:130px;text-align:right">Amount</th>
@@ -209,7 +209,7 @@
           <label class="field-label">EFD Reference Number</label>
           <input type="text" name="efd_reference" class="form-control"
                  placeholder="Enter after EFD machine prints">
-          <p class="field-hint">VAT invoices only — enter after the EFD prints.</p>
+          <p class="field-hint">VAT invoices only: enter after the EFD prints.</p>
         </div>
         <div id="validity-section" style="display:none" class="mt-3">
           <label class="field-label">Proforma valid for (days)</label>

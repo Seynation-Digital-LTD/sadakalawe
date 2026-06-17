@@ -13,8 +13,10 @@
   </a>
 </div>
 
-<div class="card-section" style="max-width:540px">
-  <form method="POST">
+<div class="card-section" style="max-width:700px">
+  <form method="POST" id="user-form">
+
+    <!-- Name + Username -->
     <div class="row g-3 mb-3">
       <div class="col-md-6">
         <label class="form-label fw-semibold">Full Name <span class="text-danger">*</span></label>
@@ -32,10 +34,11 @@
       </div>
     </div>
 
+    <!-- Role + Branch -->
     <div class="row g-3 mb-3">
       <div class="col-md-6">
         <label class="form-label fw-semibold">Role</label>
-        <select name="role" class="form-select">
+        <select name="role" id="role-select" class="form-select">
           <option value="staff" {% if not user or user.role == 'staff' %}selected{% endif %}>Staff</option>
           <option value="admin" {% if user and user.role == 'admin' %}selected{% endif %}>Admin</option>
         </select>
@@ -54,27 +57,82 @@
       </div>
     </div>
 
+    <!-- Password -->
     {% if action == 'new' %}
-    <div class="mb-3">
+    <div class="mb-4">
       <label class="form-label fw-semibold">Password <span class="text-danger">*</span></label>
       <input type="password" name="password" class="form-control" required minlength="6">
     </div>
     {% else %}
-    <div class="mb-3">
-      <label class="form-label fw-semibold">New Password</label>
-      <input type="password" name="new_password" class="form-control" minlength="6"
-             placeholder="Leave blank to keep current password">
-    </div>
-    <div class="mb-4">
-      <div class="form-check">
-        <input type="checkbox" name="is_active" id="is_active" class="form-check-input"
-               value="1" {% if user.is_active %}checked{% endif %}>
-        <label for="is_active" class="form-check-label fw-semibold">Account Active</label>
+    <div class="row g-3 mb-4">
+      <div class="col-md-8">
+        <label class="form-label fw-semibold">New Password</label>
+        <input type="password" name="new_password" class="form-control" minlength="6"
+               placeholder="Leave blank to keep current password">
+      </div>
+      <div class="col-md-4 d-flex align-items-end">
+        <div class="form-check mb-2">
+          <input type="checkbox" name="is_active" id="is_active" class="form-check-input"
+                 value="1" {% if user.is_active %}checked{% endif %}>
+          <label for="is_active" class="form-check-label fw-semibold">Account Active</label>
+        </div>
+        <div class="form-check mt-2">
+          <input type="checkbox" name="must_change_password" id="must_change_password" class="form-check-input"
+                 value="1" {% if user.must_change_password %}checked{% endif %}>
+          <label for="must_change_password" class="form-check-label fw-semibold">Force password change on next login</label>
+        </div>
       </div>
     </div>
     {% endif %}
 
-    <div class="d-flex gap-2">
+    <!-- Permissions (staff only) -->
+    <div id="permissions-section">
+      <hr class="my-3">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h6 class="fw-bold mb-0">
+          <i class="bi bi-shield-check me-2" style="color:var(--c-orange)"></i>Permissions
+        </h6>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-xs btn-outline-secondary" id="check-all">Check all</button>
+          <button type="button" class="btn btn-xs btn-outline-secondary" id="uncheck-all">Uncheck all</button>
+        </div>
+      </div>
+      <p class="text-muted small mb-3">Choose what this staff member is allowed to do.</p>
+
+      <div class="row g-3">
+        {% for section, perms in permissions.items() %}
+        <div class="col-md-6">
+          <div class="perm-card">
+            <div class="perm-card__header">
+              {% set icons = {
+                'Documents':        'bi-file-earmark-text',
+                'Customers':        'bi-people',
+                'Products & Stock': 'bi-box-seam',
+                'Reports':          'bi-bar-chart',
+                'System':           'bi-gear'
+              } %}
+              <i class="bi {{ icons.get(section, 'bi-shield') }} me-2"></i>{{ section }}
+            </div>
+            <div class="perm-card__body">
+              {% for key, label in perms %}
+              <div class="form-check mb-2">
+                <input type="checkbox"
+                       name="perm_{{ key }}"
+                       id="perm_{{ key }}"
+                       class="form-check-input perm-check"
+                       value="1"
+                       {% if key in checked %}checked{% endif %}>
+                <label for="perm_{{ key }}" class="form-check-label small">{{ label }}</label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-4">
       <button type="submit" class="btn btn-primary px-4">
         {{ 'Save Changes' if action == 'edit' else 'Create User' }}
       </button>
@@ -82,4 +140,27 @@
     </div>
   </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const roleSelect  = document.getElementById('role-select');
+  const permSection = document.getElementById('permissions-section');
+  const checks      = document.querySelectorAll('.perm-check');
+
+  function togglePerms() {
+    permSection.style.display = roleSelect.value === 'admin' ? 'none' : '';
+  }
+  roleSelect.addEventListener('change', togglePerms);
+  togglePerms();
+
+  document.getElementById('check-all').addEventListener('click', () => {
+    checks.forEach(c => c.checked = true);
+  });
+  document.getElementById('uncheck-all').addEventListener('click', () => {
+    checks.forEach(c => c.checked = false);
+  });
+})();
+</script>
 {% endblock %}

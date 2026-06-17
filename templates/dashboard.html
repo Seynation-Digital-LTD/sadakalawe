@@ -26,7 +26,11 @@
   <div class="col-6 col-lg-3">
     <div class="stat-card {% if loop.first %}stat-card-accent{% endif %}">
       <div class="stat-label">{{ label }}</div>
+      {% if current_user.can('view_sales_amounts') %}
       <div class="stat-value">TZS {{ '{:,.0f}'.format(data.revenue) }}</div>
+      {% else %}
+      <div class="stat-value" style="letter-spacing:.15em;color:#9ca3af">••••••</div>
+      {% endif %}
       <div class="stat-count">{{ data.count }} invoice{{ 's' if data.count != 1 }}</div>
     </div>
   </div>
@@ -41,6 +45,7 @@
         <div class="alert-card__icon"><i class="bi bi-clock-history"></i></div>
         <div class="alert-card__body">
           <div class="alert-card__title">Pending Debts</div>
+          {% if current_user.can('view_sales_amounts') %}
           <div class="alert-card__value">TZS {{ '{:,.0f}'.format(credit_summary.total_owed if credit_summary else 0) }}</div>
           <div class="alert-card__sub">
             {{ credit_summary.count if credit_summary else 0 }} invoice{{ 's' if (credit_summary and credit_summary.count != 1) else '' }} —
@@ -48,6 +53,10 @@
               <span class="fw-bold" style="color:#93000a">TZS {{ '{:,.0f}'.format(credit_summary.overdue) }} overdue!</span>
             {% else %}No overdue amounts{% endif %}
           </div>
+          {% else %}
+          <div class="alert-card__value">{{ credit_summary.count if credit_summary else 0 }} pending</div>
+          <div class="alert-card__sub">{{ 'Some overdue' if (credit_summary and credit_summary.overdue > 0) else 'No overdue' }}</div>
+          {% endif %}
         </div>
         <div class="alert-card__arrow"><i class="bi bi-arrow-right"></i></div>
       </div>
@@ -81,13 +90,21 @@
     <div class="card-section">
       <div class="section-header"><i class="bi bi-diagram-3"></i> Sales by Branch — This Month</div>
       <table class="data-table">
-        <thead><tr><th>Branch</th><th class="text-end">Invoices</th><th class="text-end">Revenue</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Branch</th>
+            <th class="text-end">Invoices</th>
+            {% if current_user.can('view_sales_amounts') %}<th class="text-end">Revenue</th>{% endif %}
+          </tr>
+        </thead>
         <tbody>
           {% for b in branch_split %}
           <tr>
             <td><span class="badge-branch">{{ b.short_code }}</span> {{ b.name }}</td>
             <td class="text-end">{{ b.count }}</td>
+            {% if current_user.can('view_sales_amounts') %}
             <td class="text-end fw-bold">TZS {{ '{:,.0f}'.format(b.revenue) }}</td>
+            {% endif %}
           </tr>
           {% endfor %}
         </tbody>
@@ -98,16 +115,24 @@
     <div class="card-section">
       <div class="section-header"><i class="bi bi-trophy"></i> Top Products — This Month</div>
       <table class="data-table">
-        <thead><tr><th>Product</th><th class="text-end">Qty</th><th class="text-end">Revenue</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th class="text-end">Qty</th>
+            {% if current_user.can('view_sales_amounts') %}<th class="text-end">Revenue</th>{% endif %}
+          </tr>
+        </thead>
         <tbody>
           {% for p in top_products %}
           <tr>
             <td>{{ p.description[:45] }}</td>
             <td class="text-end text-muted">{{ p.qty | int }}</td>
+            {% if current_user.can('view_sales_amounts') %}
             <td class="text-end fw-bold">TZS {{ '{:,.0f}'.format(p.revenue) }}</td>
+            {% endif %}
           </tr>
           {% else %}
-          <tr><td colspan="3" class="text-muted text-center py-3">Add sales to see data here</td></tr>
+          <tr><td colspan="{{ 3 if current_user.can('view_sales_amounts') else 2 }}" class="text-muted text-center py-3">Add sales to see data here</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -127,7 +152,9 @@
           <div style="font-weight:600;font-size:14px" class="text-truncate">{{ c.name }}</div>
           <div class="text-muted" style="font-size:12px">{{ c.orders }} purchase{{ 's' if c.orders != 1 }}</div>
         </div>
+        {% if current_user.can('view_sales_amounts') %}
         <div style="font-weight:700;font-size:13px;white-space:nowrap;color:var(--c-text)">TZS {{ '{:,.0f}'.format(c.revenue) }}</div>
+        {% endif %}
       </a>
       {% else %}
       <p class="text-muted text-center py-3" style="font-size:14px">Add sales to see data here</p>

@@ -21,7 +21,7 @@
         <option value="">All Products</option>
         {% for p in products %}
         <option value="{{ p.id }}" {% if product_filter|string == p.id|string %}selected{% endif %}>
-          {{ p.brand_category }} — {{ p.model }}
+          {{ p.brand_category }}: {{ p.model }}
         </option>
         {% endfor %}
       </select>
@@ -66,8 +66,8 @@
           <td class="text-end fw-bold {{ 'text-success' if m.quantity > 0 else 'text-danger' }}">
             {% if m.quantity > 0 %}+{% endif %}{{ m.quantity | int }}
           </td>
-          <td class="text-muted">{{ m.supplier or '—' }}</td>
-          <td class="text-muted">{{ m.staff_name or '—' }}</td>
+          <td class="text-muted">{{ m.supplier or '-' }}</td>
+          <td class="text-muted">{{ m.staff_name or '-' }}</td>
         </tr>
         {% else %}
         <tr><td colspan="7" class="text-center text-muted py-4">No stock movements recorded yet</td></tr>

@@ -74,7 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
   addBtn && addBtn.addEventListener('click', () => addRow());
   addRow(); // start with one row
 
-  function addRow(desc = '', qty = 1, price = '') {
+  function addRow(desc = '', qty = 1, price = '', specs = '') {
     rowCount++;
     const tr = document.createElement('tr');
     tr.dataset.row = rowCount;
@@ -83,6 +83,8 @@ document.addEventListener('DOMContentLoaded', () => {
       <td style="position:relative">
         <input type="text" name="item_description[]" class="desc-inp"
                value="${esc(desc)}" placeholder="Item name or description…" autocomplete="off">
+        <input type="text" name="item_specs[]" class="specs-inp"
+               value="${esc(specs)}" placeholder="Specs / details (optional)…" style="margin-top:3px;font-size:12px;color:#6b7280">
         <input type="hidden" name="item_product_id[]" class="pid-inp" value="">
       </td>
       <td>
@@ -93,7 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <input type="number" name="item_price[]" class="price-inp"
                value="${price}" min="0" step="100" placeholder="0" style="text-align:right">
       </td>
-      <td class="line-total" data-val="0">—</td>
+      <td class="line-total" data-val="0">-</td>
       <td>
         <button type="button" class="btn-row-del" title="Futa safu">
           <i class="bi bi-x-lg"></i>
@@ -132,7 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const price = parseFloat(tr.querySelector('.price-inp').value) || 0;
     const total = qty * price;
     const cell  = tr.querySelector('.line-total');
-    cell.textContent = total ? 'TZS ' + fmt(total) : '—';
+    cell.textContent = total ? 'TZS ' + fmt(total) : '-';
     cell.dataset.val = total;
   }
 

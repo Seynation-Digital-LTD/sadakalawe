@@ -73,7 +73,10 @@
         <th>Model / Name</th>
         <th>Description</th>
         <th>SKU</th>
-        <th class="text-end">Price (TZS)</th>
+        {% if current_user.can('view_cost_price') %}
+        <th class="text-end">Cost (TZS)</th>
+        {% endif %}
+        <th class="text-end">Sell Price (TZS)</th>
         <th class="text-end">Stock</th>
         <th>Status</th>
         <th style="width:60px">Actions</th>
@@ -100,8 +103,11 @@
           {% endif %}
         </td>
         <td class="fw-semibold">{{ p.model }}</td>
-        <td class="text-muted small">{{ p.description or '—' }}</td>
-        <td><code class="small">{{ p.sku or '—' }}</code></td>
+        <td class="text-muted small">{{ p.description or '-' }}</td>
+        <td><code class="small">{{ p.sku or '-' }}</code></td>
+        {% if current_user.can('view_cost_price') %}
+        <td class="text-end text-muted small">{{ "{:,.0f}".format(p.cost_price or 0) if p.cost_price else '-' }}</td>
+        {% endif %}
         <td class="text-end fw-semibold">{{ "{:,.0f}".format(p.price or 0) }}</td>
         <td class="text-end">
           <span class="{{ 'text-danger fw-bold' if (p.stock_count or 0) <= 0 else ('text-warning fw-semibold' if (p.stock_count or 0) <= (p.low_stock_alert or 3) else '') }}">

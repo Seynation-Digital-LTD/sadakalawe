@@ -1,12 +1,12 @@
 {% extends 'base.html' %}
 {% set active = 'documents' %}
-{% block title %}Sale — {{ batch_id }}{% endblock %}
+{% block title %}Sale: {{ batch_id }}{% endblock %}
 
 {% block content %}
 <div class="page-header">
   <div>
     <h2 class="page-title">Sale: {{ batch_id }}</h2>
-    <p class="page-sub">Invoice · Proforma · Delivery Note — all 3 documents for this sale</p>
+    <p class="page-sub">Invoice, Proforma and Delivery Note: all 3 documents for this sale</p>
   </div>
   <div class="d-flex gap-2 flex-wrap">
     <a href="{{ url_for('documents.download_merged', ids=ids_str) }}"

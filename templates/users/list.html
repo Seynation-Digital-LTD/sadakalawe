@@ -17,8 +17,14 @@
   <table class="data-table">
     <thead>
       <tr>
-        <th>Name</th><th>Username</th><th>Role</th>
-        <th>Branch</th><th>Status</th><th>Created</th><th>Actions</th>
+        <th>Name</th>
+        <th>Username</th>
+        <th>Role</th>
+        <th>Branch</th>
+        <th>Permissions</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -28,12 +34,23 @@
         <td><code>{{ u.username }}</code></td>
         <td>
           {% if u.role == 'admin' %}
-          <span class="badge bg-warning-subtle text-warning">Admin</span>
+          <span class="badge bg-warning-subtle text-warning">
+            <i class="bi bi-shield-fill me-1"></i>Admin
+          </span>
           {% else %}
           <span class="badge bg-secondary-subtle text-secondary">Staff</span>
           {% endif %}
         </td>
         <td>{{ u.branch_name or '— All —' }}</td>
+        <td>
+          {% if u.role == 'admin' %}
+          <span class="text-muted small">Full access</span>
+          {% else %}
+          <span class="perm-count" title="Click Edit to manage permissions">
+            {{ u.perm_count }} permission{{ 's' if u.perm_count != 1 else '' }}
+          </span>
+          {% endif %}
+        </td>
         <td>
           {% if u.is_active %}
           <span class="badge bg-success-subtle text-success">Active</span>

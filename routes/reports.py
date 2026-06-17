@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, send_file
 from flask_login import login_required, current_user
 from database import query_db
+from routes.auth import perm_required
 from datetime import date
 import csv
 from io import StringIO, BytesIO
@@ -17,6 +18,7 @@ def _branch_filter(branch_id):
 
 @bp.route('/dashboard')
 @login_required
+@perm_required('view_reports')
 def dashboard():
     branch_id = (current_user.branch_id if not current_user.is_admin
                  else request.args.get('branch_id', ''))
@@ -136,6 +138,7 @@ def dashboard():
 
 @bp.route('/reports/sales')
 @login_required
+@perm_required('view_reports')
 def sales_report():
     """Detailed sales report with date range filter."""
     branch_id = (current_user.branch_id if not current_user.is_admin
@@ -195,6 +198,7 @@ def sales_report():
 
 @bp.route('/reports/debts')
 @login_required
+@perm_required('view_reports')
 def debts_report():
     """Outstanding debts grouped by customer."""
     branch_id = (current_user.branch_id if not current_user.is_admin
@@ -243,6 +247,7 @@ def debts_report():
 
 @bp.route('/reports/stock')
 @login_required
+@perm_required('view_reports')
 def stock_report():
     """Stock valuation and low-stock report."""
     branch_id = (current_user.branch_id if not current_user.is_admin
