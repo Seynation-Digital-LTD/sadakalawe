@@ -1,4 +1,6 @@
+import re
 import zipfile
+from urllib.parse import quote as urlquote
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, send_file, abort)
 from flask_login import login_required, current_user
@@ -11,6 +13,41 @@ from routes.auth import perm_required
 from datetime import datetime, date
 from io import BytesIO
 from pypdf import PdfWriter, PdfReader
+
+
+def _wa_phone(phone):
+    """Normalise a TZ phone number to WhatsApp format (no + prefix)."""
+    if not phone:
+        return ''
+    p = re.sub(r'[\s\-\(\)+]', '', str(phone))
+    if p.startswith('255'):
+        return p
+    if p.startswith('0') and len(p) >= 10:
+        return '255' + p[1:]
+    return '255' + p
+
+
+def _wa_url(doc, items, doc_type_label, customer_phone):
+    lines = [
+        f"*Sadakalawe Enterprises*",
+        f"📄 *{doc_type_label} #{doc['doc_number']}*",
+        "",
+    ]
+    for item in items:
+        lines.append(f"• {item['description']} × {item['quantity']:g} — TZS {item['line_total']:,.0f}")
+    lines.append("")
+    if doc['is_vat']:
+        lines.append(f"Subtotal: TZS {doc['subtotal']:,.0f}")
+        lines.append(f"VAT (18%): TZS {doc['vat_amount']:,.0f}")
+    lines.append(f"*TOTAL: TZS {doc['total']:,.0f}*")
+    lines.append("")
+    lines.append("Asante kwa kununua Sadakalawe! 🙏")
+    lines.append("📞 +255 768 596 006 | sadakalawe.com")
+    msg = "\n".join(lines)
+    phone = _wa_phone(customer_phone)
+    if phone:
+        return f"https://wa.me/{phone}?text={urlquote(msg)}"
+    return f"https://wa.me/?text={urlquote(msg)}"
 
 bp = Blueprint('documents', __name__, url_prefix='/documents')
 
@@ -390,9 +427,11 @@ def view(doc_id):
             WHERE batch_id=? AND id!=?
             ORDER BY doc_type
         """, (doc['batch_id'], doc_id))
+    label = DOC_TYPE_LABELS.get(doc['doc_type'], doc['doc_type'])
+    wa = _wa_url(dict(doc), [dict(i) for i in items], label, doc['customer_phone'])
     return render_template('documents/view.html', doc=doc, items=items,
                            payments=payments, siblings=siblings,
-                           doc_type_label=DOC_TYPE_LABELS.get(doc['doc_type'], doc['doc_type']))
+                           doc_type_label=label, wa_url=wa)
 
 
 @bp.route('/<int:doc_id>/pdf')

@@ -1,0 +1,230 @@
+{% extends 'base.html' %}
+{% set active = 'financing' %}
+{% block title %}New Financing Plan{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">New Financing Plan</h2>
+    <p class="page-sub">Set up installment payments for a customer</p>
+  </div>
+  <a href="{{ url_for('financing.list') }}" class="btn btn-ghost"><i class="bi bi-arrow-left"></i> Back</a>
+</div>
+
+{% if prefill_doc %}
+<div class="alert alert-info mb-3">
+  <i class="bi bi-link-45deg"></i> Linked to sale <strong>{{ prefill_doc.doc_number }}</strong>
+  — {{ prefill_doc.customer_name }}
+</div>
+{% endif %}
+
+<div style="max-width:720px">
+<form method="POST">
+  <input type="hidden" name="from_doc_id" value="{{ prefill_doc.id if prefill_doc else '' }}">
+
+  <!-- Customer + Branch -->
+  <div class="card-section mb-3">
+    <h6 class="fw-bold mb-3">Customer & Branch</h6>
+    <div class="row g-3">
+      <div class="col-md-7">
+        <label class="form-label fw-semibold">Customer <span class="text-danger">*</span></label>
+        <input type="hidden" name="customer_id" id="customer_id"
+               value="{{ prefill_doc.cust_id if prefill_doc else (form.get('customer_id','') if form else '') }}">
+        <input type="text" id="customer_search" class="form-control"
+               placeholder="Search customer…"
+               value="{{ prefill_doc.customer_name if prefill_doc else '' }}" autocomplete="off">
+        <div id="customer_results" class="dropdown-menu w-100" style="max-height:220px;overflow-y:auto"></div>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label fw-semibold">Branch</label>
+        <select name="branch_id" class="form-select">
+          {% for b in branches %}
+          <option value="{{ b.id }}"
+            {% if (form.get('branch_id','')|string == b.id|string) or
+                  (not form.get('branch_id') and current_user.branch_id == b.id) %}selected{% endif %}>
+            {{ b.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Product & Risk -->
+  <div class="card-section mb-3">
+    <h6 class="fw-bold mb-3">Product Being Financed</h6>
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Product Description <span class="text-danger">*</span></label>
+      <input type="text" name="product_description" class="form-control"
+             value="{{ form.get('product_description','') }}"
+             placeholder="e.g. iPhone 17 Pro Max 1TB Space Black" required>
+    </div>
+    <div class="form-check form-switch mb-2">
+      <input type="checkbox" class="form-check-input" name="is_iphone" value="1"
+             id="is_iphone" onchange="toggleRisk(this.checked)"
+             {% if form.get('is_iphone')=='1' %}checked{% endif %}>
+      <label class="form-check-label fw-semibold" for="is_iphone">
+        This is an iPhone sale
+        <span class="badge bg-danger ms-1"><i class="bi bi-exclamation-triangle-fill"></i> HIGH RISK</span>
+      </label>
+    </div>
+    <div id="iphone-warning" class="alert alert-danger py-2 small" style="display:none">
+      <strong>iPhone High-Risk Policy:</strong> iPhones cannot be remotely locked by third parties.
+      Require a guarantor with ID, a higher deposit, and shorter terms. Consider employer salary-deduction
+      partnerships for lower default risk.
+    </div>
+  </div>
+
+  <!-- Financials -->
+  <div class="card-section mb-3">
+    <h6 class="fw-bold mb-3">Payment Structure</h6>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Total Sale Price (TZS) <span class="text-danger">*</span></label>
+        <input type="number" name="total_price" id="total_price" class="form-control"
+               value="{{ form.get('total_price','') }}" min="1" step="1"
+               oninput="recalc()" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Deposit Paid (TZS)</label>
+        <input type="number" name="deposit_amount" id="deposit_amount" class="form-control"
+               value="{{ form.get('deposit_amount','0') }}" min="0" step="1"
+               oninput="recalc()">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Amount to Finance</label>
+        <input type="text" id="financed_display" class="form-control bg-light" readonly>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Number of Installments</label>
+        <select name="num_installments" id="num_inst" class="form-select" onchange="recalc()">
+          {% for n in [1,2,3,4,6,8,9,10,12,18,24,36] %}
+          <option value="{{ n }}" {% if form.get('num_installments','3')|string == n|string %}selected{% endif %}>
+            {{ n }} month{{ 's' if n > 1 else '' }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Monthly Installment</label>
+        <input type="text" id="inst_display" class="form-control bg-light fw-bold" readonly>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">First Installment Date <span class="text-danger">*</span></label>
+        <input type="date" name="start_date" class="form-control"
+               value="{{ form.get('start_date','') }}" required>
+      </div>
+    </div>
+  </div>
+
+  <!-- Guarantor (shown for high risk) -->
+  <div class="card-section mb-3" id="guarantor-section">
+    <h6 class="fw-bold mb-1">
+      Guarantor / Reference
+      <span id="guarantor-req-badge" class="badge bg-danger ms-1" style="display:none">Required for iPhone</span>
+    </h6>
+    <p class="text-muted small mb-3">Person who guarantees this customer's payments.</p>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Guarantor Full Name</label>
+        <input type="text" name="guarantor_name" class="form-control"
+               value="{{ form.get('guarantor_name','') }}"
+               placeholder="Full name">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Guarantor Phone</label>
+        <input type="text" name="guarantor_phone" class="form-control"
+               value="{{ form.get('guarantor_phone','') }}"
+               placeholder="+255…">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Guarantor ID Number</label>
+        <input type="text" name="guarantor_id" class="form-control"
+               value="{{ form.get('guarantor_id','') }}"
+               placeholder="National ID / Passport">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Employer / Workplace</label>
+        <input type="text" name="employer" class="form-control"
+               value="{{ form.get('employer','') }}"
+               placeholder="Where does the customer work?">
+      </div>
+    </div>
+  </div>
+
+  <div class="card-section mb-3">
+    <label class="form-label fw-semibold">Notes</label>
+    <textarea name="notes" class="form-control" rows="2"
+              placeholder="Any additional notes…">{{ form.get('notes','') }}</textarea>
+  </div>
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary px-4">
+      <i class="bi bi-check-lg"></i> Create Financing Plan
+    </button>
+    <a href="{{ url_for('financing.list') }}" class="btn btn-ghost">Cancel</a>
+  </div>
+</form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function fmt(n) {
+  return isNaN(n) ? '—' : 'TZS ' + Math.round(n).toLocaleString();
+}
+function recalc() {
+  const total   = parseFloat(document.getElementById('total_price').value) || 0;
+  const deposit = parseFloat(document.getElementById('deposit_amount').value) || 0;
+  const n       = parseInt(document.getElementById('num_inst').value) || 1;
+  const financed = Math.max(0, total - deposit);
+  const inst     = n > 0 ? financed / n : 0;
+  document.getElementById('financed_display').value = fmt(financed);
+  document.getElementById('inst_display').value     = fmt(inst);
+}
+function toggleRisk(on) {
+  document.getElementById('iphone-warning').style.display = on ? '' : 'none';
+  document.getElementById('guarantor-req-badge').style.display = on ? '' : 'none';
+}
+document.addEventListener('DOMContentLoaded', function() {
+  recalc();
+  toggleRisk(document.getElementById('is_iphone').checked);
+
+  // Customer autocomplete
+  const search = document.getElementById('customer_search');
+  const results = document.getElementById('customer_results');
+  const hiddenId = document.getElementById('customer_id');
+  let timer;
+  search.addEventListener('input', function() {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (search.value.length < 2) { results.style.display='none'; return; }
+      fetch('/customers/search?q=' + encodeURIComponent(search.value))
+        .then(r => r.json())
+        .then(data => {
+          results.innerHTML = '';
+          if (!data.length) { results.style.display='none'; return; }
+          data.forEach(c => {
+            const item = document.createElement('a');
+            item.className = 'dropdown-item';
+            item.href = '#';
+            item.textContent = c.name + (c.phone ? ' — ' + c.phone : '');
+            item.onclick = e => {
+              e.preventDefault();
+              hiddenId.value = c.id;
+              search.value = c.name;
+              results.style.display = 'none';
+            };
+            results.appendChild(item);
+          });
+          results.style.display = 'block';
+        });
+    }, 200);
+  });
+  document.addEventListener('click', e => {
+    if (!results.contains(e.target) && e.target !== search)
+      results.style.display = 'none';
+  });
+});
+</script>
+{% endblock %}

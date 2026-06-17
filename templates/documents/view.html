@@ -34,6 +34,17 @@
       </button>
     </form>
     {% endif %}
+    <a href="{{ wa_url }}" target="_blank" class="btn btn-success">
+      <i class="bi bi-whatsapp"></i> WhatsApp
+    </a>
+    {% if doc.doc_type == 'invoice' and current_user.can('create_documents') %}
+    <a href="{{ url_for('financing.new', from_doc=doc.id) }}" class="btn btn-outline-primary">
+      <i class="bi bi-calendar-check"></i> Financing Plan
+    </a>
+    <a href="{{ url_for('tradeins.new', from_doc=doc.id) }}" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-left-right"></i> Trade-In
+    </a>
+    {% endif %}
     <a href="{{ url_for('documents.list') }}" class="btn btn-ghost">
       <i class="bi bi-arrow-left"></i> Back
     </a>

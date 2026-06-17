@@ -50,6 +50,14 @@
          class="nav-link {% if active == 'credits' %}active{% endif %}">
         <i class="bi bi-clock-history"></i> Credits / Debts
       </a>
+      <a href="{{ url_for('financing.list') }}"
+         class="nav-link {% if active == 'financing' %}active{% endif %}">
+        <i class="bi bi-calendar-check"></i> Financing
+      </a>
+      <a href="{{ url_for('tradeins.list') }}"
+         class="nav-link {% if active == 'tradeins' %}active{% endif %}">
+        <i class="bi bi-arrow-left-right"></i> Trade-Ins
+      </a>
       <a href="{{ url_for('expenses.list') }}"
          class="nav-link {% if active == 'expenses' %}active{% endif %}">
         <i class="bi bi-wallet2"></i> Expenses

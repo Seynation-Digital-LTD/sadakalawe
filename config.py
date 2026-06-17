@@ -42,6 +42,8 @@ DOC_TYPE_PREFIXES = {
     'invoice': 'INV',
     'proforma': 'PRO',
     'delivery_note': 'DN',
+    'financing': 'FIN',
+    'tradein': 'TI',
 }
 
 DOC_TYPE_LABELS = {

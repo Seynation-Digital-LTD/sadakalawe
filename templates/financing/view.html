@@ -1,0 +1,233 @@
+{% extends 'base.html' %}
+{% set active = 'financing' %}
+{% block title %}{{ plan.plan_number }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">{{ plan.plan_number }}</h2>
+    <p class="page-sub">
+      Financing Plan ·
+      {% if plan.status == 'active' %}<span class="badge bg-primary">Active</span>
+      {% elif plan.status == 'completed' %}<span class="badge bg-success">Completed</span>
+      {% else %}<span class="badge bg-danger">Defaulted</span>{% endif %}
+    </p>
+  </div>
+  <a href="{{ url_for('financing.list') }}" class="btn btn-ghost"><i class="bi bi-arrow-left"></i> Back</a>
+</div>
+
+<!-- High risk warning -->
+{% if plan.risk_level == 'high' %}
+<div class="alert alert-danger mb-3">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>
+  <strong>HIGH RISK — iPhone Financing:</strong>
+  iPhones cannot be remotely locked. Strict terms apply. Ensure guarantor details are verified and deposit is adequate.
+</div>
+{% endif %}
+
+<!-- Plan summary -->
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="card-section h-100">
+      <div class="small text-muted mb-1">Customer</div>
+      <div class="fw-bold fs-5">{{ plan.customer_name }}</div>
+      {% if plan.customer_phone %}<div class="text-muted small">📞 {{ plan.customer_phone }}</div>{% endif %}
+      <div class="mt-2 small text-muted">{{ plan.branch_name }}</div>
+      {% if plan.linked_doc_number %}
+      <div class="mt-1 small">
+        <i class="bi bi-receipt"></i>
+        <a href="{{ url_for('documents.list') }}" class="text-muted">{{ plan.linked_doc_number }}</a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card-section h-100">
+      <div class="small text-muted mb-1">Product</div>
+      <div class="fw-bold">{{ plan.product_description }}</div>
+      <div class="mt-3 row g-1 text-center">
+        <div class="col-4">
+          <div class="small text-muted">Total</div>
+          <div class="fw-semibold">{{ "{:,.0f}".format(plan.total_price) }}</div>
+        </div>
+        <div class="col-4">
+          <div class="small text-muted">Deposit</div>
+          <div class="fw-semibold text-success">{{ "{:,.0f}".format(plan.deposit_amount) }}</div>
+        </div>
+        <div class="col-4">
+          <div class="small text-muted">Financed</div>
+          <div class="fw-semibold" style="color:var(--c-orange)">{{ "{:,.0f}".format(plan.financed_amount) }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card-section h-100">
+      <div class="small text-muted mb-1">Payment Progress</div>
+      <div class="fw-bold fs-4" style="color:var(--c-orange)">TZS {{ "{:,.0f}".format(total_paid) }}</div>
+      <div class="small text-muted">of TZS {{ "{:,.0f}".format(plan.financed_amount) }} financed</div>
+      <div class="progress my-2" style="height:8px">
+        <div class="progress-bar" style="width:{{ pct_paid }}%;background:var(--c-orange)"></div>
+      </div>
+      <div class="d-flex justify-content-between small">
+        <span class="text-success">Paid: TZS {{ "{:,.0f}".format(total_paid) }}</span>
+        <span class="text-danger">Left: TZS {{ "{:,.0f}".format(remaining) }}</span>
+      </div>
+      <div class="mt-2 small text-muted">{{ plan.num_installments }} installments · {{ "{:,.0f}".format(plan.installment_amount) }}/mo</div>
+    </div>
+  </div>
+</div>
+
+<!-- Guarantor -->
+{% if plan.guarantor_name %}
+<div class="card-section mb-3">
+  <h6 class="fw-bold mb-2"><i class="bi bi-person-check-fill me-1"></i> Guarantor</h6>
+  <div class="row g-2 small">
+    <div class="col-md-3"><span class="text-muted">Name:</span> <strong>{{ plan.guarantor_name }}</strong></div>
+    {% if plan.guarantor_phone %}<div class="col-md-3"><span class="text-muted">Phone:</span> {{ plan.guarantor_phone }}</div>{% endif %}
+    {% if plan.guarantor_id_number %}<div class="col-md-3"><span class="text-muted">ID:</span> {{ plan.guarantor_id_number }}</div>{% endif %}
+    {% if plan.employer %}<div class="col-md-3"><span class="text-muted">Employer:</span> {{ plan.employer }}</div>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Installment schedule -->
+<div class="card-section mb-3">
+  <h6 class="fw-bold mb-3">Installment Schedule</h6>
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>#</th><th>Due Date</th><th class="text-end">Amount Due</th>
+          <th class="text-end">Amount Paid</th><th>Status</th><th>Paid Via</th><th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inst in installments %}
+        <tr class="{{ 'table-danger' if inst.status == 'overdue' else ('table-success' if inst.status == 'paid' else '') }}">
+          <td class="fw-semibold">{{ inst.installment_number }}</td>
+          <td>{{ inst.due_date }}
+            {% if inst.status == 'overdue' %}
+            <span class="badge bg-danger ms-1">Overdue</span>
+            {% endif %}
+          </td>
+          <td class="text-end">{{ "{:,.0f}".format(inst.amount_due) }}</td>
+          <td class="text-end {{ 'text-success' if inst.status == 'paid' else '' }}">
+            {{ "{:,.0f}".format(inst.amount_paid) if inst.amount_paid else '—' }}
+          </td>
+          <td>
+            {% if inst.status == 'paid' %}<span class="badge bg-success">Paid</span>
+            {% elif inst.status == 'partial' %}<span class="badge bg-warning text-dark">Partial</span>
+            {% elif inst.status == 'overdue' %}<span class="badge bg-danger">Overdue</span>
+            {% else %}<span class="badge bg-secondary">Pending</span>{% endif %}
+          </td>
+          <td class="small text-muted">
+            {{ inst.payment_method | title if inst.payment_method else '—' }}
+            {% if inst.paid_by_name %}<div>{{ inst.paid_by_name }}</div>{% endif %}
+          </td>
+          <td>
+            {% if inst.status != 'paid' and plan.status == 'active' %}
+            <button class="btn btn-xs btn-primary" data-bs-toggle="modal"
+                    data-bs-target="#payModal{{ inst.id }}">
+              <i class="bi bi-cash"></i> Pay
+            </button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="fw-bold">
+          <td colspan="2">Total</td>
+          <td class="text-end">{{ "{:,.0f}".format(plan.financed_amount) }}</td>
+          <td class="text-end text-success">{{ "{:,.0f}".format(total_paid) }}</td>
+          <td colspan="3"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<!-- Status change (admin) -->
+{% if current_user.is_admin and plan.status == 'active' %}
+<div class="card-section mb-3">
+  <h6 class="fw-bold mb-2">Change Plan Status</h6>
+  <div class="d-flex gap-2">
+    <form method="POST" action="{{ url_for('financing.change_status', plan_id=plan.id) }}">
+      <input type="hidden" name="status" value="completed">
+      <button type="submit" class="btn btn-sm btn-success"
+              onclick="return confirm('Mark this plan as completed?')">
+        <i class="bi bi-check-circle"></i> Mark Completed
+      </button>
+    </form>
+    <form method="POST" action="{{ url_for('financing.change_status', plan_id=plan.id) }}">
+      <input type="hidden" name="status" value="defaulted">
+      <button type="submit" class="btn btn-sm btn-danger"
+              onclick="return confirm('Mark this plan as DEFAULTED? This means the customer stopped paying.')">
+        <i class="bi bi-x-circle"></i> Mark Defaulted
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% if plan.notes %}
+<div class="card-section mb-3">
+  <div class="small text-muted">Notes</div>
+  <div>{{ plan.notes }}</div>
+</div>
+{% endif %}
+
+<!-- Pay modals -->
+{% for inst in installments %}
+{% if inst.status != 'paid' and plan.status == 'active' %}
+<div class="modal fade" id="payModal{{ inst.id }}" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="border-bottom:3px solid var(--c-orange)">
+        <h5 class="modal-title fw-bold">Record Payment — Installment #{{ inst.installment_number }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('financing.record_payment', plan_id=plan.id, inst_id=inst.id) }}">
+        <div class="modal-body">
+          <div class="alert alert-secondary py-2 small mb-3">
+            Due: <strong>{{ inst.due_date }}</strong> ·
+            Outstanding: <strong>TZS {{ "{:,.0f}".format(inst.amount_due - inst.amount_paid) }}</strong>
+          </div>
+          <div class="row g-3">
+            <div class="col-7">
+              <label class="form-label fw-semibold">Amount Received (TZS)</label>
+              <input type="number" name="amount_paid" class="form-control"
+                     value="{{ "{:.0f}".format(inst.amount_due - inst.amount_paid) }}" min="1" step="1" required>
+            </div>
+            <div class="col-5">
+              <label class="form-label fw-semibold">Date</label>
+              <input type="date" name="paid_date" class="form-control" value="{{ today }}">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Payment Method</label>
+              <select name="payment_method" class="form-select">
+                <option value="cash">Cash</option>
+                <option value="mpesa">M-Pesa</option>
+                <option value="airtel_money">Airtel Money</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Notes (optional)</label>
+              <input type="text" name="notes" class="form-control" placeholder="Reference, receipt #, etc.">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Record Payment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+{% endblock %}

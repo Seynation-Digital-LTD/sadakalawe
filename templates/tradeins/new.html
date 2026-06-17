@@ -1,0 +1,191 @@
+{% extends 'base.html' %}
+{% set active = 'tradeins' %}
+{% block title %}Record Trade-In{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Record Trade-In</h2>
+    <p class="page-sub">Customer brings in a device towards a new purchase</p>
+  </div>
+  <a href="{{ url_for('tradeins.list') }}" class="btn btn-ghost"><i class="bi bi-arrow-left"></i> Back</a>
+</div>
+
+{% if prefill_doc %}
+<div class="alert alert-info mb-3">
+  <i class="bi bi-link-45deg"></i> Linked to sale <strong>{{ prefill_doc.doc_number }}</strong>
+  — {{ prefill_doc.customer_name }}
+</div>
+{% endif %}
+
+<div style="max-width:700px">
+<form method="POST">
+  <input type="hidden" name="linked_doc_id" value="{{ prefill_doc.id if prefill_doc else '' }}">
+
+  <!-- Customer + Branch -->
+  <div class="card-section mb-3">
+    <h6 class="fw-bold mb-3">Customer & Branch</h6>
+    <div class="row g-3">
+      <div class="col-md-7">
+        <label class="form-label fw-semibold">Customer <span class="text-danger">*</span></label>
+        <input type="hidden" name="customer_id" id="customer_id"
+               value="{{ prefill_doc.cust_id if prefill_doc else '' }}">
+        <input type="text" id="customer_search" class="form-control"
+               placeholder="Search customer…"
+               value="{{ prefill_doc.customer_name if prefill_doc else '' }}" autocomplete="off">
+        <div id="customer_results" class="dropdown-menu w-100" style="max-height:220px;overflow-y:auto"></div>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label fw-semibold">Branch</label>
+        <select name="branch_id" class="form-select">
+          {% for b in branches %}
+          <option value="{{ b.id }}"
+            {% if not form.get('branch_id') and current_user.branch_id == b.id %}selected
+            {% elif form.get('branch_id')|string == b.id|string %}selected{% endif %}>
+            {{ b.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Device details -->
+  <div class="card-section mb-3">
+    <h6 class="fw-bold mb-3">Device Details</h6>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Make / Brand <span class="text-danger">*</span></label>
+        <input type="text" name="device_make" class="form-control"
+               value="{{ form.get('device_make','') }}"
+               list="makes-list" placeholder="Apple, Samsung…" required>
+        <datalist id="makes-list">
+          <option>Apple</option><option>Samsung</option><option>Xiaomi</option>
+          <option>Tecno</option><option>Infinix</option><option>Nokia</option>
+          <option>Huawei</option><option>OnePlus</option>
+        </datalist>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Model <span class="text-danger">*</span></label>
+        <input type="text" name="device_model" class="form-control"
+               value="{{ form.get('device_model','') }}"
+               placeholder="iPhone 14 Pro, Galaxy S23…" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Storage</label>
+        <input type="text" name="device_storage" class="form-control"
+               value="{{ form.get('device_storage','') }}"
+               list="storage-list" placeholder="128GB, 256GB…">
+        <datalist id="storage-list">
+          <option>64GB</option><option>128GB</option><option>256GB</option>
+          <option>512GB</option><option>1TB</option>
+        </datalist>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Color</label>
+        <input type="text" name="device_color" class="form-control"
+               value="{{ form.get('device_color','') }}" placeholder="Black, White…">
+      </div>
+      <div class="col-md-8">
+        <label class="form-label fw-semibold">IMEI / Serial Number</label>
+        <input type="text" name="device_imei" class="form-control"
+               value="{{ form.get('device_imei','') }}"
+               placeholder="15-digit IMEI or serial" style="font-family:monospace">
+        <div class="form-text">Dial *#06# on the device to get the IMEI.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Condition -->
+  <div class="card-section mb-3">
+    <h6 class="fw-bold mb-3">Condition Assessment</h6>
+    <div class="row g-2 mb-3">
+      {% for val, label in conditions %}
+      {% set colors = {'excellent':'success','good':'success','fair':'warning','poor':'danger','broken':'danger'} %}
+      <div class="col-md-4 col-6">
+        <label class="condition-opt border rounded p-2 d-flex align-items-center gap-2 cursor-pointer"
+               style="cursor:pointer">
+          <input type="radio" name="condition" value="{{ val }}"
+                 {% if form.get('condition', 'good') == val %}checked{% endif %}>
+          <span class="badge bg-{{ colors.get(val,'secondary') }}">{{ val | capitalize }}</span>
+          <small>{{ label.split('—')[1] | trim if '—' in label else label }}</small>
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+    <div>
+      <label class="form-label fw-semibold">Condition Notes</label>
+      <textarea name="condition_notes" class="form-control" rows="2"
+                placeholder="Cracked screen, missing charger, factory reset done, etc.">{{ form.get('condition_notes','') }}</textarea>
+    </div>
+  </div>
+
+  <!-- Valuation -->
+  <div class="card-section mb-3">
+    <h6 class="fw-bold mb-3">Valuation</h6>
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Assessed Value (TZS)</label>
+        <input type="number" name="assessed_value" class="form-control"
+               value="{{ form.get('assessed_value','0') }}" min="0" step="1">
+        <div class="form-text">Internal valuation of the device.</div>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Credit Offered to Customer (TZS)</label>
+        <input type="number" name="credit_offered" class="form-control"
+               value="{{ form.get('credit_offered','0') }}" min="0" step="1">
+        <div class="form-text">What you're giving the customer off their new purchase.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary px-4">
+      <i class="bi bi-check-lg"></i> Record Trade-In
+    </button>
+    <a href="{{ url_for('tradeins.list') }}" class="btn btn-ghost">Cancel</a>
+  </div>
+</form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const search = document.getElementById('customer_search');
+  const results = document.getElementById('customer_results');
+  const hiddenId = document.getElementById('customer_id');
+  let timer;
+  search.addEventListener('input', function() {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (search.value.length < 2) { results.style.display='none'; return; }
+      fetch('/customers/search?q=' + encodeURIComponent(search.value))
+        .then(r => r.json())
+        .then(data => {
+          results.innerHTML = '';
+          if (!data.length) { results.style.display='none'; return; }
+          data.forEach(c => {
+            const item = document.createElement('a');
+            item.className = 'dropdown-item';
+            item.href = '#';
+            item.textContent = c.name + (c.phone ? ' — ' + c.phone : '');
+            item.onclick = e => {
+              e.preventDefault();
+              hiddenId.value = c.id;
+              search.value = c.name;
+              results.style.display = 'none';
+            };
+            results.appendChild(item);
+          });
+          results.style.display = 'block';
+        });
+    }, 200);
+  });
+  document.addEventListener('click', e => {
+    if (!results.contains(e.target) && e.target !== search)
+      results.style.display = 'none';
+  });
+});
+</script>
+{% endblock %}

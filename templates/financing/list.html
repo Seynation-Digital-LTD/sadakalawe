@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+{% set active = 'financing' %}
+{% block title %}Financing Plans{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Financing Plans</h2>
+    <p class="page-sub">{{ plans | length }} plan{{ 's' if plans | length != 1 else '' }}</p>
+  </div>
+  <a href="{{ url_for('financing.new') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg"></i> New Plan
+  </a>
+</div>
+
+<!-- Filters -->
+<div class="card-section mb-3 py-3">
+  <form method="GET" class="row g-2 align-items-end">
+    <div class="col-md-3">
+      <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="">All Statuses</option>
+        <option value="active"    {% if status_filter=='active'    %}selected{% endif %}>Active</option>
+        <option value="completed" {% if status_filter=='completed' %}selected{% endif %}>Completed</option>
+        <option value="defaulted" {% if status_filter=='defaulted' %}selected{% endif %}>Defaulted</option>
+      </select>
+    </div>
+    {% if current_user.is_admin %}
+    <div class="col-md-3">
+      <select name="branch_id" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="">All Branches</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>{{ b.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <div class="col-auto">
+      <a href="{{ url_for('financing.list') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-x-lg"></i> Clear
+      </a>
+    </div>
+  </form>
+</div>
+
+<div class="card-section">
+  {% if not plans %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-calendar-check" style="font-size:2rem;opacity:.3"></i>
+    <p class="mt-2">No financing plans yet.</p>
+    <a href="{{ url_for('financing.new') }}" class="btn btn-sm btn-primary">Create first plan</a>
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Plan #</th><th>Customer</th>
+          {% if current_user.is_admin %}<th>Branch</th>{% endif %}
+          <th>Product</th><th class="text-end">Total</th>
+          <th class="text-end">Deposit</th><th class="text-end">Paid</th>
+          <th>Progress</th><th>Risk</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in plans %}
+        {% set pct = ((p.total_paid or 0) / p.financed_amount * 100) | int if p.financed_amount else 0 %}
+        <tr>
+          <td class="fw-semibold">{{ p.plan_number }}</td>
+          <td>
+            <div class="fw-medium">{{ p.customer_name }}</div>
+            {% if p.overdue_count %}<span class="badge bg-danger">{{ p.overdue_count }} overdue</span>{% endif %}
+          </td>
+          {% if current_user.is_admin %}<td class="text-muted small">{{ p.branch_name }}</td>{% endif %}
+          <td class="small">{{ p.product_description }}</td>
+          <td class="text-end">{{ "{:,.0f}".format(p.total_price) }}</td>
+          <td class="text-end text-muted">{{ "{:,.0f}".format(p.deposit_amount) }}</td>
+          <td class="text-end">{{ "{:,.0f}".format(p.total_paid or 0) }}</td>
+          <td style="min-width:100px">
+            <div class="progress" style="height:6px">
+              <div class="progress-bar bg-warning" style="width:{{ pct }}%"></div>
+            </div>
+            <div class="small text-muted">{{ pct }}%</div>
+          </td>
+          <td>
+            {% if p.risk_level == 'high' %}
+            <span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill"></i> iPhone</span>
+            {% else %}
+            <span class="badge bg-secondary">Normal</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if p.status == 'active' %}<span class="badge bg-primary">Active</span>
+            {% elif p.status == 'completed' %}<span class="badge bg-success">Completed</span>
+            {% else %}<span class="badge bg-danger">Defaulted</span>{% endif %}
+          </td>
+          <td>
+            <a href="{{ url_for('financing.view', plan_id=p.id) }}"
+               class="btn btn-xs btn-outline-secondary"><i class="bi bi-eye"></i></a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

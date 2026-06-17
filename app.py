@@ -60,6 +60,8 @@ def create_app():
     from routes.credits import bp as credits_bp
     from routes.stock import bp as stock_bp
     from routes.expenses import bp as expenses_bp
+    from routes.financing import bp as financing_bp
+    from routes.tradeins import bp as tradeins_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(customers_bp)
@@ -70,6 +72,8 @@ def create_app():
     app.register_blueprint(credits_bp)
     app.register_blueprint(stock_bp)
     app.register_blueprint(expenses_bp)
+    app.register_blueprint(financing_bp)
+    app.register_blueprint(tradeins_bp)
 
     @app.route('/')
     def index():

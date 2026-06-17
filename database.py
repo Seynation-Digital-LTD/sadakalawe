@@ -194,6 +194,68 @@ def _create_tables(db):
             stock_movement_id INTEGER REFERENCES stock_movements(id),
             created_at        TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
+
+        CREATE TABLE IF NOT EXISTS financing_plans (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_number         TEXT NOT NULL UNIQUE,
+            document_id         INTEGER REFERENCES documents(id),
+            customer_id         INTEGER NOT NULL REFERENCES customers(id),
+            branch_id           INTEGER NOT NULL REFERENCES branches(id),
+            product_description TEXT NOT NULL,
+            total_price         REAL NOT NULL,
+            deposit_amount      REAL NOT NULL DEFAULT 0,
+            financed_amount     REAL NOT NULL,
+            num_installments    INTEGER NOT NULL DEFAULT 1,
+            installment_amount  REAL NOT NULL,
+            start_date          TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'active',
+            risk_level          TEXT NOT NULL DEFAULT 'normal',
+            guarantor_name      TEXT,
+            guarantor_phone     TEXT,
+            guarantor_id_number TEXT,
+            employer            TEXT,
+            notes               TEXT,
+            created_by          INTEGER REFERENCES users(id),
+            created_at          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS financing_installments (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id             INTEGER NOT NULL REFERENCES financing_plans(id) ON DELETE CASCADE,
+            installment_number  INTEGER NOT NULL,
+            due_date            TEXT NOT NULL,
+            amount_due          REAL NOT NULL,
+            amount_paid         REAL NOT NULL DEFAULT 0,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            paid_date           TEXT,
+            payment_method      TEXT,
+            recorded_by         INTEGER REFERENCES users(id),
+            notes               TEXT,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS tradeins (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            tradein_number      TEXT NOT NULL UNIQUE,
+            customer_id         INTEGER NOT NULL REFERENCES customers(id),
+            branch_id           INTEGER NOT NULL REFERENCES branches(id),
+            linked_document_id  INTEGER REFERENCES documents(id),
+            device_make         TEXT NOT NULL,
+            device_model        TEXT NOT NULL,
+            device_imei         TEXT,
+            device_color        TEXT,
+            device_storage      TEXT,
+            condition           TEXT NOT NULL DEFAULT 'good',
+            condition_notes     TEXT,
+            assessed_value      REAL NOT NULL DEFAULT 0,
+            credit_offered      REAL NOT NULL DEFAULT 0,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            disposition         TEXT DEFAULT 'in_stock',
+            disposition_notes   TEXT,
+            disposition_date    TEXT,
+            assessed_by         INTEGER REFERENCES users(id),
+            created_at          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
     """)
 
 

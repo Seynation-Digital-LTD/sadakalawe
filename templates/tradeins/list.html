@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+{% set active = 'tradeins' %}
+{% block title %}Trade-Ins{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Trade-Ins</h2>
+    <p class="page-sub">{{ items | length }} device{{ 's' if items | length != 1 else '' }}</p>
+  </div>
+  <a href="{{ url_for('tradeins.new') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg"></i> Record Trade-In
+  </a>
+</div>
+
+<!-- Filters -->
+<div class="card-section mb-3 py-3">
+  <form method="GET" class="row g-2 align-items-end">
+    <div class="col-md-4">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input type="text" name="q" value="{{ q }}" class="form-control"
+               placeholder="Customer, device make or model, IMEI…">
+      </div>
+    </div>
+    <div class="col-md-2">
+      <select name="status" class="form-select form-select-sm">
+        <option value="">All Statuses</option>
+        <option value="pending"   {% if status_filter=='pending'   %}selected{% endif %}>Pending</option>
+        <option value="accepted"  {% if status_filter=='accepted'  %}selected{% endif %}>Accepted</option>
+        <option value="completed" {% if status_filter=='completed' %}selected{% endif %}>Completed</option>
+        <option value="rejected"  {% if status_filter=='rejected'  %}selected{% endif %}>Rejected</option>
+      </select>
+    </div>
+    {% if current_user.is_admin %}
+    <div class="col-md-2">
+      <select name="branch_id" class="form-select form-select-sm">
+        <option value="">All Branches</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>{{ b.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <div class="col-auto d-flex gap-1">
+      <button type="submit" class="btn btn-sm btn-secondary"><i class="bi bi-funnel-fill"></i></button>
+      <a href="{{ url_for('tradeins.list') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-lg"></i></a>
+    </div>
+  </form>
+</div>
+
+<div class="card-section">
+  {% if not items %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-arrow-left-right" style="font-size:2rem;opacity:.3"></i>
+    <p class="mt-2">No trade-ins recorded yet.</p>
+    <a href="{{ url_for('tradeins.new') }}" class="btn btn-sm btn-primary">Record first trade-in</a>
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Ref #</th><th>Customer</th>
+          {% if current_user.is_admin %}<th>Branch</th>{% endif %}
+          <th>Device</th><th>Condition</th>
+          <th class="text-end">Assessed</th><th class="text-end">Credit</th>
+          <th>Linked Sale</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in items %}
+        <tr>
+          <td class="fw-semibold">{{ t.tradein_number }}</td>
+          <td>{{ t.customer_name }}</td>
+          {% if current_user.is_admin %}<td class="text-muted small">{{ t.branch_name }}</td>{% endif %}
+          <td>
+            <div class="fw-medium">{{ t.device_make }} {{ t.device_model }}</div>
+            {% if t.device_storage %}<div class="small text-muted">{{ t.device_storage }}</div>{% endif %}
+            {% if t.device_imei %}<div class="small text-muted" style="font-family:monospace">{{ t.device_imei }}</div>{% endif %}
+          </td>
+          <td>
+            {% set cond_colors = {'excellent':'success','good':'success','fair':'warning','poor':'danger','broken':'danger'} %}
+            <span class="badge bg-{{ cond_colors.get(t.condition,'secondary') }}">
+              {{ conditions.get(t.condition, t.condition) | truncate(10, True, '') }}
+            </span>
+          </td>
+          <td class="text-end">{{ "{:,.0f}".format(t.assessed_value) if t.assessed_value else '—' }}</td>
+          <td class="text-end text-success fw-semibold">{{ "{:,.0f}".format(t.credit_offered) if t.credit_offered else '—' }}</td>
+          <td class="small">{{ t.linked_doc_number or '—' }}</td>
+          <td>
+            {% if t.status == 'pending' %}<span class="badge bg-warning text-dark">Pending</span>
+            {% elif t.status == 'accepted' %}<span class="badge bg-primary">Accepted</span>
+            {% elif t.status == 'completed' %}<span class="badge bg-success">Completed</span>
+            {% else %}<span class="badge bg-danger">Rejected</span>{% endif %}
+          </td>
+          <td>
+            <a href="{{ url_for('tradeins.view', ti_id=t.id) }}"
+               class="btn btn-xs btn-outline-secondary"><i class="bi bi-eye"></i></a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
