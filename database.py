@@ -201,6 +201,7 @@ def _run_migrations(db):
     """Add new columns to existing tables without breaking existing data."""
     migrations = [
         "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN session_token TEXT",
         "ALTER TABLE documents ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'paid'",
         "ALTER TABLE documents ADD COLUMN amount_paid REAL NOT NULL DEFAULT 0",
         "ALTER TABLE documents ADD COLUMN credit_due_date TEXT",

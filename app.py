@@ -1,6 +1,6 @@
 import os
-from flask import Flask, redirect, url_for
-from flask_login import LoginManager
+from flask import Flask, redirect, url_for, session
+from flask_login import LoginManager, current_user
 from database import close_db, init_db
 from models import User
 
@@ -24,7 +24,27 @@ def create_app():
 
     @login_manager.user_loader
     def load_user(user_id):
-        return User.get_by_id(user_id)
+        user = User.get_by_id(user_id)
+        if user is None:
+            return None
+        # Single-session: reject if session token doesn't match DB
+        if user.session_token and session.get('session_token') != user.session_token:
+            return None
+        return user
+
+    @app.before_request
+    def enforce_password_change():
+        """Force must_change_password users to the profile page before anything else."""
+        if not current_user.is_authenticated:
+            return
+        if not current_user.must_change_password:
+            return
+        # Allow the profile page, logout, and static files through
+        from flask import request as req
+        if req.endpoint in ('auth.profile', 'auth.logout', 'static'):
+            return
+        flash('Please change your password before continuing.', 'warning')
+        return redirect(url_for('auth.profile'))
 
     app.teardown_appcontext(close_db)
 

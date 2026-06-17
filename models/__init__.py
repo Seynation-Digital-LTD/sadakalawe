@@ -48,7 +48,8 @@ DEFAULT_STAFF_PERMISSIONS = {
 
 
 class User(UserMixin):
-    def __init__(self, id, username, full_name, role, branch_id, is_active, must_change_password=0):
+    def __init__(self, id, username, full_name, role, branch_id, is_active,
+                 must_change_password=0, session_token=None):
         self.id = id
         self.username = username
         self.full_name = full_name
@@ -56,6 +57,7 @@ class User(UserMixin):
         self.branch_id = branch_id
         self._is_active = bool(is_active)
         self.must_change_password = bool(must_change_password)
+        self.session_token = session_token
         self._permissions = None  # lazy-loaded
 
     @property
@@ -92,9 +94,11 @@ class User(UserMixin):
         db = get_db()
         row = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
         if row:
-            mcp = row['must_change_password'] if 'must_change_password' in row.keys() else 0
+            keys = row.keys()
+            mcp = row['must_change_password'] if 'must_change_password' in keys else 0
+            tok = row['session_token'] if 'session_token' in keys else None
             return User(row['id'], row['username'], row['full_name'],
-                        row['role'], row['branch_id'], row['is_active'], mcp)
+                        row['role'], row['branch_id'], row['is_active'], mcp, tok)
         return None
 
     @staticmethod
@@ -102,9 +106,11 @@ class User(UserMixin):
         db = get_db()
         row = db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         if row:
-            mcp = row['must_change_password'] if 'must_change_password' in row.keys() else 0
+            keys = row.keys()
+            mcp = row['must_change_password'] if 'must_change_password' in keys else 0
+            tok = row['session_token'] if 'session_token' in keys else None
             return User(row['id'], row['username'], row['full_name'],
-                        row['role'], row['branch_id'], row['is_active'], mcp)
+                        row['role'], row['branch_id'], row['is_active'], mcp, tok)
         return None
 
     def get_password_hash(self):

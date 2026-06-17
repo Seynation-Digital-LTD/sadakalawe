@@ -1,4 +1,5 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+import secrets
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 from models import User, PERMISSIONS, ALL_PERMISSION_KEYS, DEFAULT_STAFF_PERMISSIONS
@@ -60,7 +61,11 @@ def login():
         password = request.form.get('password', '')
         user = User.get_by_username(username)
         if user and user.is_active and check_password_hash(user.get_password_hash(), password):
+            # Single-session: invalidate any previous session by rotating the token
+            token = secrets.token_hex(32)
+            execute_db("UPDATE users SET session_token=? WHERE id=?", (token, user.id))
             login_user(user)
+            session['session_token'] = token
             if user.must_change_password:
                 flash('Please set a new password before continuing.', 'warning')
                 return redirect(url_for('auth.profile'))
@@ -73,6 +78,7 @@ def login():
 @bp.route('/logout')
 @login_required
 def logout():
+    execute_db("UPDATE users SET session_token=NULL WHERE id=?", (current_user.id,))
     logout_user()
     return redirect(url_for('auth.login'))
 
@@ -201,11 +207,19 @@ def profile():
         else:
             current_password = request.form.get('current_password', '')
             new_password = request.form.get('new_password', '')
-            if check_password_hash(current_user.get_password_hash(), current_password):
-                execute_db("UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
-                           (generate_password_hash(new_password, method='pbkdf2:sha256'), current_user.id))
-                flash('Password changed successfully.', 'success')
-            else:
+            confirm_password = request.form.get('confirm_password', '')
+            if not new_password or len(new_password) < 6:
+                flash('New password must be at least 6 characters.', 'danger')
+            elif new_password != confirm_password:
+                flash('New passwords do not match.', 'danger')
+            elif not check_password_hash(current_user.get_password_hash(), current_password):
                 flash('Current password is incorrect.', 'danger')
+            else:
+                execute_db(
+                    "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
+                    (generate_password_hash(new_password, method='pbkdf2:sha256'), current_user.id)
+                )
+                flash('Password changed successfully.', 'success')
+                return redirect(url_for('auth.profile'))
 
     return render_template('users/profile.html', user=current_user)
