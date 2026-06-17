@@ -6,16 +6,20 @@
 <div class="page-header">
   <div>
     <h2 class="page-title">Stock Report</h2>
-    <p class="page-sub">Inventory value and all products in stock</p>
+    <p class="page-sub">{% if slow_days %}Slow-moving stock (no sales in {{ slow_days }} days){% else %}Inventory value and all products{% endif %}</p>
   </div>
-  <a href="{{ url_for('reports.stock_report', branch_id=branch_filter, export='csv') }}"
-     class="btn btn-ghost"><i class="bi bi-download"></i> Export CSV</a>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('reports.stock_report', branch_id=branch_filter, slow_days=slow_days, export='csv') }}"
+       class="btn btn-ghost btn-sm"><i class="bi bi-filetype-csv"></i> CSV</a>
+    <a href="{{ url_for('reports.stock_report', branch_id=branch_filter, slow_days=slow_days, export='excel') }}"
+       class="btn btn-ghost btn-sm" style="color:#1d6f42"><i class="bi bi-file-earmark-spreadsheet"></i> Excel</a>
+  </div>
 </div>
 
-{% if current_user.is_admin %}
 <div class="card-section mb-3">
   <form class="row g-2 align-items-end" method="GET">
-    <div class="col-md-4">
+    {% if current_user.is_admin %}
+    <div class="col-md-3">
       <label class="field-label">Branch</label>
       <select name="branch_id" class="form-select">
         <option value="">All Branches (Combined)</option>
@@ -24,23 +28,45 @@
         {% endfor %}
       </select>
     </div>
+    {% endif %}
     <div class="col-md-3">
+      <label class="field-label">Slow-Moving Filter</label>
+      <select name="slow_days" class="form-select">
+        <option value="">All Products</option>
+        <option value="30" {% if slow_days == '30' %}selected{% endif %}>No sales in 30 days</option>
+        <option value="60" {% if slow_days == '60' %}selected{% endif %}>No sales in 60 days</option>
+        <option value="90" {% if slow_days == '90' %}selected{% endif %}>No sales in 90 days</option>
+      </select>
+    </div>
+    <div class="col-auto">
       <button type="submit" class="btn btn-primary">View</button>
     </div>
+    {% if slow_days %}
+    <div class="col-auto">
+      <a href="{{ url_for('reports.stock_report', branch_id=branch_filter) }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+    </div>
+    {% endif %}
   </form>
+</div>
+
+{% if slow_days %}
+<div class="alert alert-warning d-flex align-items-center gap-2 mb-3" style="border-radius:8px;font-size:14px">
+  <i class="bi bi-hourglass-split fs-5"></i>
+  Showing <strong>{{ products|length }}</strong> product{{ 's' if products|length != 1 }} with stock &gt; 0 but <strong>no sales in the last {{ slow_days }} days</strong>.
+  These may be worth discounting or promoting.
 </div>
 {% endif %}
 
 <div class="row g-3 mb-4">
   <div class="col-md-4">
     <div class="stat-card stat-card-accent">
-      <div class="stat-label">Total Inventory Value</div>
+      <div class="stat-label">{% if slow_days %}Slow Stock Value{% else %}Total Inventory Value{% endif %}</div>
       <div class="stat-value">TZS {{ '{:,.0f}'.format(total_value) }}</div>
     </div>
   </div>
   <div class="col-md-4">
     <div class="stat-card">
-      <div class="stat-label">Total Units in Stock</div>
+      <div class="stat-label">Total Units{% if slow_days %} (Slow){% endif %}</div>
       <div class="stat-value">{{ total_items | int }}</div>
       <div class="stat-count">{{ products|length }} product type{{ 's' if products|length != 1 }}</div>
     </div>
@@ -63,7 +89,7 @@
         <tr>
           <td><span class="badge-category">{{ p.brand_category }}</span></td>
           <td class="fw-600">{{ p.model }}</td>
-          <td class="text-muted">{{ p.sku or '—' }}</td>
+          <td class="text-muted">{{ p.sku or '' }}</td>
           <td class="text-end">TZS {{ '{:,.0f}'.format(p.price) }}</td>
           <td class="text-end fw-bold {{ 'text-danger' if p.stock == 0 else 'text-warning-dark' if is_low else '' }}">
             {{ p.stock | int }}
@@ -71,14 +97,20 @@
           <td class="text-end text-muted">{{ p.low_stock_alert }}</td>
           <td class="text-end fw-bold">TZS {{ '{:,.0f}'.format(p.value) }}</td>
           <td>
-            {% if p.stock == 0 %}<span class="badge-status badge-danger">Out of Stock</span>
+            {% if slow_days %}<span class="badge-status badge-warning">Slow</span>
+            {% elif p.stock == 0 %}<span class="badge-status badge-danger">Out of Stock</span>
             {% elif is_low %}<span class="badge-status badge-warning">Low</span>
             {% else %}<span class="badge-status badge-paid">OK</span>
             {% endif %}
           </td>
         </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">
+          {% if slow_days %}No slow-moving products found for this period.{% else %}No products found.{% endif %}
+        </td></tr>
         {% endfor %}
       </tbody>
+      {% if products %}
       <tfoot>
         <tr style="border-top:2px solid var(--c-border);font-weight:700">
           <td colspan="6">TOTAL VALUE</td>
@@ -86,6 +118,7 @@
           <td></td>
         </tr>
       </tfoot>
+      {% endif %}
     </table>
   </div>
 </div>

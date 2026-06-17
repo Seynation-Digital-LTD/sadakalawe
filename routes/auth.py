@@ -178,12 +178,33 @@ def user_edit(user_id):
 @login_required
 def profile():
     if request.method == 'POST':
-        current_password = request.form.get('current_password', '')
-        new_password = request.form.get('new_password', '')
-        if check_password_hash(current_user.get_password_hash(), current_password):
-            execute_db("UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
-                       (generate_password_hash(new_password, method='pbkdf2:sha256'), current_user.id))
-            flash('Password changed successfully.', 'success')
+        action = request.form.get('action', 'password')
+
+        if action == 'details':
+            new_username = request.form.get('username', '').strip()
+            new_fullname = request.form.get('full_name', '').strip()
+            if not new_username or not new_fullname:
+                flash('Username and full name cannot be empty.', 'danger')
+            else:
+                taken = query_db(
+                    "SELECT id FROM users WHERE username=? AND id!=?",
+                    (new_username, current_user.id), one=True)
+                if taken:
+                    flash('That username is already taken.', 'danger')
+                else:
+                    execute_db(
+                        "UPDATE users SET username=?, full_name=? WHERE id=?",
+                        (new_username, new_fullname, current_user.id))
+                    flash('Profile updated.', 'success')
+
         else:
-            flash('Current password is incorrect.', 'danger')
+            current_password = request.form.get('current_password', '')
+            new_password = request.form.get('new_password', '')
+            if check_password_hash(current_user.get_password_hash(), current_password):
+                execute_db("UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
+                           (generate_password_hash(new_password, method='pbkdf2:sha256'), current_user.id))
+                flash('Password changed successfully.', 'success')
+            else:
+                flash('Current password is incorrect.', 'danger')
+
     return render_template('users/profile.html', user=current_user)

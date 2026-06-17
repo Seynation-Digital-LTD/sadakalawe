@@ -5,15 +5,44 @@ from routes.auth import perm_required
 from datetime import date
 import csv
 from io import StringIO, BytesIO
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
 
 bp = Blueprint('reports', __name__)
 
+ORANGE = 'FFF26522'
+BLACK  = 'FF000000'
+WHITE  = 'FFFFFFFF'
+LIGHT  = 'FFFFF3EC'
+
 
 def _branch_filter(branch_id):
-    """Return (sql_clause, args) for branch filtering."""
     if branch_id:
         return " AND branch_id=?", [branch_id]
     return "", []
+
+
+def _xlsx_workbook(sheet_name, headers):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+    hdr_fill = PatternFill('solid', fgColor=ORANGE)
+    hdr_font = Font(bold=True, color=WHITE)
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.fill = hdr_fill
+        cell.font = hdr_font
+        cell.alignment = Alignment(horizontal='center')
+    return wb, ws
+
+
+def _xlsx_response(wb, filename):
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     as_attachment=True, download_name=filename)
 
 
 @bp.route('/dashboard')
@@ -40,7 +69,6 @@ def dashboard():
     month  = _totals("strftime('%Y-%m',created_at)=strftime('%Y-%m','now')", [])
     year   = _totals("strftime('%Y',created_at)=strftime('%Y','now')", [])
 
-    # Branch split this month
     branch_split = query_db("""
         SELECT b.name, b.short_code,
                COUNT(d.id) as count,
@@ -52,7 +80,6 @@ def dashboard():
         GROUP BY b.id ORDER BY b.name
     """)
 
-    # Outstanding credit summary
     credit_sql = """
         SELECT COUNT(*) as count,
                COALESCE(SUM(total - amount_paid),0) as total_owed,
@@ -66,7 +93,6 @@ def dashboard():
         credit_args.append(branch_id)
     credit_summary = query_db(credit_sql, credit_args, one=True)
 
-    # Low-stock alerts
     low_stock = query_db("""
         SELECT p.brand_category, p.model, p.low_stock_alert,
                COALESCE(SUM(ps.quantity),0) AS total_stock
@@ -79,7 +105,6 @@ def dashboard():
         LIMIT 6
     """)
 
-    # Top products this month
     tp_sql = """
         SELECT di.description, SUM(di.quantity) as qty, SUM(di.line_total) as revenue
         FROM document_items di
@@ -94,7 +119,6 @@ def dashboard():
     tp_sql += " GROUP BY di.description ORDER BY revenue DESC LIMIT 5"
     top_products = query_db(tp_sql, tp_args)
 
-    # Top customers this month
     tc_sql = """
         SELECT c.name, c.id, COUNT(d.id) as orders,
                COALESCE(SUM(d.total),0) as revenue
@@ -110,7 +134,6 @@ def dashboard():
     tc_sql += " GROUP BY c.id ORDER BY revenue DESC LIMIT 5"
     top_customers = query_db(tc_sql, tc_args)
 
-    # Recent docs
     rec_sql = """
         SELECT d.id, d.doc_number, d.doc_type, d.total, d.payment_status,
                d.created_at, b.name as branch_name, c.name as customer_name
@@ -140,7 +163,6 @@ def dashboard():
 @login_required
 @perm_required('view_reports')
 def sales_report():
-    """Detailed sales report with date range filter."""
     branch_id = (current_user.branch_id if not current_user.is_admin
                  else request.args.get('branch_id', ''))
     date_from = request.args.get('date_from', date.today().replace(day=1).isoformat())
@@ -167,17 +189,19 @@ def sales_report():
     sql += " ORDER BY d.created_at DESC"
     docs = query_db(sql, args)
 
-    total_rev   = sum(float(d['total']) for d in docs)
-    total_paid  = sum(float(d['amount_paid']) for d in docs)
-    total_debt  = sum(float(d['balance']) for d in docs)
-    cash_count  = sum(1 for d in docs if d['payment_status'] == 'paid')
+    total_rev    = sum(float(d['total']) for d in docs)
+    total_paid   = sum(float(d['amount_paid']) for d in docs)
+    total_debt   = sum(float(d['balance']) for d in docs)
+    cash_count   = sum(1 for d in docs if d['payment_status'] == 'paid')
     credit_count = sum(1 for d in docs if d['payment_status'] in ('credit','partial'))
+
+    headers = ['Doc Number','Date','Branch','Customer','Staff',
+               'Total (TZS)','Paid (TZS)','Balance (TZS)','Status']
 
     if export == 'csv':
         si = StringIO()
         w = csv.writer(si)
-        w.writerow(['Doc Number','Date','Branch','Customer','Staff',
-                    'Total','Paid','Balance','Status'])
+        w.writerow(headers)
         for d in docs:
             w.writerow([d['doc_number'], d['created_at'][:10], d['branch_name'],
                         d['customer_name'] or 'Walk-in', d['staff_name'],
@@ -185,6 +209,23 @@ def sales_report():
         buf = BytesIO(si.getvalue().encode('utf-8-sig'))
         return send_file(buf, mimetype='text/csv', as_attachment=True,
                          download_name=f"Sales_{date_from}_{date_to}.csv")
+
+    if export == 'excel':
+        wb, ws = _xlsx_workbook('Sales', headers)
+        for d in docs:
+            ws.append([d['doc_number'], d['created_at'][:10], d['branch_name'],
+                       d['customer_name'] or 'Walk-in', d['staff_name'],
+                       float(d['total']), float(d['amount_paid']),
+                       float(d['balance']), d['payment_status']])
+        # Totals row
+        row = ws.max_row + 1
+        ws.cell(row=row, column=1, value='TOTAL').font = Font(bold=True)
+        ws.cell(row=row, column=6, value=total_rev).font = Font(bold=True)
+        ws.cell(row=row, column=7, value=total_paid).font = Font(bold=True)
+        ws.cell(row=row, column=8, value=total_debt).font = Font(bold=True)
+        for col in range(1, len(headers)+1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 18
+        return _xlsx_response(wb, f"Sales_{date_from}_{date_to}.xlsx")
 
     branches = query_db("SELECT * FROM branches ORDER BY name")
     return render_template('reports/sales.html',
@@ -200,7 +241,6 @@ def sales_report():
 @login_required
 @perm_required('view_reports')
 def debts_report():
-    """Outstanding debts grouped by customer."""
     branch_id = (current_user.branch_id if not current_user.is_admin
                  else request.args.get('branch_id', ''))
     export = request.args.get('export', '')
@@ -225,16 +265,31 @@ def debts_report():
 
     total_outstanding = sum(float(d['balance']) for d in debtors)
 
+    headers = ['Customer','Phone','Invoices','Total Sold (TZS)','Paid (TZS)','Balance (TZS)','Earliest Due']
+
     if export == 'csv':
         si = StringIO()
         w = csv.writer(si)
-        w.writerow(['Customer','Phone','Invoices','Total Sold','Paid','Balance','Earliest Due'])
+        w.writerow(headers)
         for d in debtors:
             w.writerow([d['name'], d['phone'], d['credit_count'],
                         d['total_sold'], d['total_paid'], d['balance'], d['earliest_due']])
         buf = BytesIO(si.getvalue().encode('utf-8-sig'))
         return send_file(buf, mimetype='text/csv', as_attachment=True,
-                         download_name=f"Madeni_{date.today().isoformat()}.csv")
+                         download_name=f"Debts_{date.today().isoformat()}.csv")
+
+    if export == 'excel':
+        wb, ws = _xlsx_workbook('Outstanding Debts', headers)
+        for d in debtors:
+            ws.append([d['name'], d['phone'] or '', d['credit_count'],
+                       float(d['total_sold']), float(d['total_paid']),
+                       float(d['balance']), d['earliest_due'] or ''])
+        row = ws.max_row + 1
+        ws.cell(row=row, column=1, value='TOTAL').font = Font(bold=True)
+        ws.cell(row=row, column=6, value=total_outstanding).font = Font(bold=True)
+        for col in range(1, len(headers)+1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 20
+        return _xlsx_response(wb, f"Debts_{date.today().isoformat()}.xlsx")
 
     branches = query_db("SELECT * FROM branches ORDER BY name")
     today = date.today().isoformat()
@@ -249,14 +304,14 @@ def debts_report():
 @login_required
 @perm_required('view_reports')
 def stock_report():
-    """Stock valuation and low-stock report."""
-    branch_id = (current_user.branch_id if not current_user.is_admin
-                 else request.args.get('branch_id', ''))
-    export = request.args.get('export', '')
+    branch_id  = (current_user.branch_id if not current_user.is_admin
+                  else request.args.get('branch_id', ''))
+    export     = request.args.get('export', '')
+    slow_days  = request.args.get('slow_days', '')  # '' = all, '30','60','90'
 
     if branch_id:
         sql = """
-            SELECT p.brand_category, p.model, p.sku, p.price,
+            SELECT p.id, p.brand_category, p.model, p.sku, p.price,
                    p.low_stock_alert,
                    COALESCE(ps.quantity,0) AS stock,
                    COALESCE(ps.quantity,0) * p.price AS value
@@ -268,7 +323,7 @@ def stock_report():
         args = [branch_id]
     else:
         sql = """
-            SELECT p.brand_category, p.model, p.sku, p.price,
+            SELECT p.id, p.brand_category, p.model, p.sku, p.price,
                    p.low_stock_alert,
                    COALESCE(SUM(ps.quantity),0) AS stock,
                    COALESCE(SUM(ps.quantity),0) * p.price AS value
@@ -281,22 +336,55 @@ def stock_report():
         args = []
 
     products = query_db(sql, args)
+
+    # Slow-moving filter: products with stock > 0 and no sales in last N days
+    if slow_days:
+        days = int(slow_days)
+        sold_ids = {
+            row['product_id'] for row in query_db(
+                """SELECT DISTINCT di.product_id FROM document_items di
+                   JOIN documents d ON di.document_id=d.id
+                   WHERE d.doc_type='invoice'
+                     AND d.created_at >= DATE('now',?)
+                     AND di.product_id IS NOT NULL""",
+                [f'-{days} days'])
+        }
+        products = [p for p in products if p['stock'] > 0 and p['id'] not in sold_ids]
+
     total_value = sum(float(p['value']) for p in products)
     total_items = sum(float(p['stock']) for p in products)
+
+    headers = ['Category','Model','SKU','Price (TZS)','Stock','Low Alert','Value (TZS)']
 
     if export == 'csv':
         si = StringIO()
         w = csv.writer(si)
-        w.writerow(['Category','Model','SKU','Price','Stock','Low Alert','Value'])
+        w.writerow(headers)
         for p in products:
-            w.writerow([p['brand_category'], p['model'], p['sku'],
+            w.writerow([p['brand_category'], p['model'], p['sku'] or '',
                         p['price'], p['stock'], p['low_stock_alert'], p['value']])
         buf = BytesIO(si.getvalue().encode('utf-8-sig'))
         return send_file(buf, mimetype='text/csv', as_attachment=True,
                          download_name=f"Stock_{date.today().isoformat()}.csv")
 
+    if export == 'excel':
+        wb, ws = _xlsx_workbook('Stock', headers)
+        for p in products:
+            ws.append([p['brand_category'], p['model'], p['sku'] or '',
+                       float(p['price']), float(p['stock']),
+                       p['low_stock_alert'], float(p['value'])])
+        row = ws.max_row + 1
+        ws.cell(row=row, column=1, value='TOTAL').font = Font(bold=True)
+        ws.cell(row=row, column=5, value=total_items).font = Font(bold=True)
+        ws.cell(row=row, column=7, value=total_value).font = Font(bold=True)
+        for col in range(1, len(headers)+1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 18
+        label = f"_Slow{slow_days}d" if slow_days else ""
+        return _xlsx_response(wb, f"Stock{label}_{date.today().isoformat()}.xlsx")
+
     branches = query_db("SELECT * FROM branches ORDER BY name")
     return render_template('reports/stock.html',
                            products=products, branches=branches,
                            branch_filter=branch_id,
-                           total_value=total_value, total_items=total_items)
+                           total_value=total_value, total_items=total_items,
+                           slow_days=slow_days)

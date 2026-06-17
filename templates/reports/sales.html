@@ -8,10 +8,16 @@
     <h2 class="page-title">Sales Report</h2>
     <p class="page-sub">View sales for any time period</p>
   </div>
-  <a href="{{ url_for('reports.sales_report', date_from=date_from, date_to=date_to, branch_id=branch_filter, export='csv') }}"
-     class="btn btn-ghost">
-    <i class="bi bi-download"></i> Export CSV
-  </a>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('reports.sales_report', date_from=date_from, date_to=date_to, branch_id=branch_filter, export='csv') }}"
+       class="btn btn-ghost btn-sm">
+      <i class="bi bi-filetype-csv"></i> CSV
+    </a>
+    <a href="{{ url_for('reports.sales_report', date_from=date_from, date_to=date_to, branch_id=branch_filter, export='excel') }}"
+       class="btn btn-ghost btn-sm" style="color:#1d6f42">
+      <i class="bi bi-file-earmark-spreadsheet"></i> Excel
+    </a>
+  </div>
 </div>
 
 <!-- Filters -->
