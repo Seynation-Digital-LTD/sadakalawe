@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from database import get_db, execute_db, query_db
 from routes.auth import perm_required
+from services.text_utils import tc, sc
 
 bp = Blueprint('customers', __name__, url_prefix='/customers')
 
@@ -44,7 +45,7 @@ def list():
 def new():
     branches = query_db("SELECT * FROM branches ORDER BY name")
     if request.method == 'POST':
-        name = request.form['name'].strip()
+        name = tc(request.form['name'])
         if not name:
             flash('Customer name is required.', 'danger')
             return render_template('customers/form.html', branches=branches, action='new')
@@ -56,10 +57,10 @@ def new():
         """, (
             name,
             request.form.get('phone', '').strip(),
-            request.form.get('email', '').strip(),
-            request.form.get('tin', '').strip(),
-            request.form.get('address', '').strip(),
-            request.form.get('notes', '').strip(),
+            request.form.get('email', '').strip().lower() or None,
+            request.form.get('tin', '').strip().upper() or None,
+            tc(request.form.get('address', '')),
+            sc(request.form.get('notes', '')),
             branch_id,
         ))
         flash(f'Customer "{name}" added.', 'success')
@@ -102,7 +103,7 @@ def edit(customer_id):
     branches = query_db("SELECT * FROM branches ORDER BY name")
 
     if request.method == 'POST':
-        name = request.form['name'].strip()
+        name = tc(request.form['name'])
         if not name:
             flash('Customer name is required.', 'danger')
             return render_template('customers/form.html', customer=customer, branches=branches, action='edit')
@@ -114,10 +115,10 @@ def edit(customer_id):
         """, (
             name,
             request.form.get('phone', '').strip(),
-            request.form.get('email', '').strip(),
-            request.form.get('tin', '').strip(),
-            request.form.get('address', '').strip(),
-            request.form.get('notes', '').strip(),
+            request.form.get('email', '').strip().lower() or None,
+            request.form.get('tin', '').strip().upper() or None,
+            tc(request.form.get('address', '')),
+            sc(request.form.get('notes', '')),
             branch_id,
             customer_id,
         ))
@@ -132,7 +133,7 @@ def edit(customer_id):
 def quick_add():
     """AJAX endpoint — create a customer inline from the New Document form."""
     data = request.get_json(silent=True) or {}
-    name = (data.get('name') or '').strip()
+    name = tc(data.get('name') or '')
     if not name:
         return jsonify({'error': 'Name is required'}), 400
     branch_id = current_user.branch_id or None
@@ -142,8 +143,8 @@ def quick_add():
     """, (
         name,
         (data.get('phone') or '').strip() or None,
-        (data.get('address') or '').strip() or None,
-        (data.get('tin') or '').strip() or None,
+        tc(data.get('address') or '') or None,
+        (data.get('tin') or '').strip().upper() or None,
         branch_id,
     ))
     return jsonify({'id': cid, 'name': name,

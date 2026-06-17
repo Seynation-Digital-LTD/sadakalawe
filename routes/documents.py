@@ -5,6 +5,7 @@ from flask_login import login_required, current_user
 from database import execute_db, query_db
 from services.numbering import get_next_number
 from services.pdf_generator import generate_pdf
+from services.text_utils import tc, sc
 from config import VAT_RATE, DOC_TYPE_LABELS
 from routes.auth import perm_required
 from datetime import datetime, date
@@ -179,9 +180,9 @@ def new():
     if request.method == 'POST':
         branch_id       = int(request.form['branch_id'])
         customer_id     = request.form.get('customer_id') or None
-        walkin_name     = request.form.get('walkin_name', '').strip() or None
+        walkin_name     = tc(request.form.get('walkin_name', '')) or None
         is_vat          = 1 if request.form.get('is_vat') else 0
-        notes           = request.form.get('notes', '').strip() or None
+        notes           = sc(request.form.get('notes', '')) or None
         efd_reference   = request.form.get('efd_reference', '').strip() or None
         validity_days   = int(request.form.get('validity_days', 7) or 7)
         vat_rate        = float(request.form.get('vat_rate', VAT_RATE) or VAT_RATE)

@@ -3,6 +3,7 @@ from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 from models import User, PERMISSIONS, ALL_PERMISSION_KEYS, DEFAULT_STAFF_PERMISSIONS
 from database import get_db, execute_db, query_db
+from services.text_utils import tc
 from functools import wraps
 
 bp = Blueprint('auth', __name__)
@@ -96,7 +97,7 @@ def user_new():
     branches = query_db("SELECT * FROM branches ORDER BY name")
     if request.method == 'POST':
         username  = request.form['username'].strip()
-        full_name = request.form['full_name'].strip()
+        full_name = tc(request.form['full_name'])
         password  = request.form['password']
         role      = request.form['role']
         branch_id = request.form.get('branch_id') or None
@@ -137,7 +138,7 @@ def user_edit(user_id):
     branches = query_db("SELECT * FROM branches ORDER BY name")
 
     if request.method == 'POST':
-        full_name    = request.form['full_name'].strip()
+        full_name    = tc(request.form['full_name'])
         role         = request.form['role']
         branch_id    = request.form.get('branch_id') or None
         is_active    = 1 if request.form.get('is_active') else 0
@@ -182,7 +183,7 @@ def profile():
 
         if action == 'details':
             new_username = request.form.get('username', '').strip()
-            new_fullname = request.form.get('full_name', '').strip()
+            new_fullname = tc(request.form.get('full_name', ''))
             if not new_username or not new_fullname:
                 flash('Username and full name cannot be empty.', 'danger')
             else:
