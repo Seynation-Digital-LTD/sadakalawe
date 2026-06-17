@@ -91,6 +91,7 @@ def users():
         SELECT u.*, b.name as branch_name,
                (SELECT COUNT(*) FROM user_permissions up WHERE up.user_id = u.id) AS perm_count
         FROM users u LEFT JOIN branches b ON u.branch_id = b.id
+        WHERE u.role != 'owner'
         ORDER BY u.full_name
     """)
     return render_template('users/list.html', users=rows)
@@ -140,6 +141,10 @@ def user_edit(user_id):
     user = query_db("SELECT * FROM users WHERE id=?", (user_id,), one=True)
     if not user:
         flash('User not found.', 'danger')
+        return redirect(url_for('auth.users'))
+    # Only the owner role can edit another owner account
+    if user['role'] == 'owner' and not current_user.is_owner:
+        flash('Access denied.', 'danger')
         return redirect(url_for('auth.users'))
     branches = query_db("SELECT * FROM branches ORDER BY name")
 

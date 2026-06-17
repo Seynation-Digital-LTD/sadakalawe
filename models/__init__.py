@@ -66,7 +66,11 @@ class User(UserMixin):
 
     @property
     def is_admin(self):
-        return self.role == 'admin'
+        return self.role in ('admin', 'owner')
+
+    @property
+    def is_owner(self):
+        return self.role == 'owner'
 
     def _load_permissions(self):
         if self._permissions is None:

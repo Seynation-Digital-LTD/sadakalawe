@@ -3,11 +3,13 @@
 Sadakalawe management CLI — run from the repo root.
 
 Usage:
+  python3 manage.py create-owner <username> <password>
   python3 manage.py reset-password <username> <new_password>
   python3 manage.py list-users
 
 Examples:
-  python3 manage.py reset-password sey NewPass123
+  python3 manage.py create-owner sey Secret999
+  python3 manage.py reset-password amina NewPass123
   python3 manage.py list-users
 """
 import sys
@@ -25,6 +27,30 @@ def get_db():
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
     return db
+
+
+def cmd_create_owner(args):
+    if len(args) < 2:
+        print("Usage: python3 manage.py create-owner <username> <password>")
+        sys.exit(1)
+    username, password = args[0], args[1]
+    if len(password) < 6:
+        print("ERROR: Password must be at least 6 characters.")
+        sys.exit(1)
+    db = get_db()
+    existing = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+    if existing:
+        print(f"ERROR: Username '{username}' already exists. Use reset-password to change their password.")
+        db.close()
+        sys.exit(1)
+    hashed = generate_password_hash(password, method='pbkdf2:sha256')
+    db.execute(
+        "INSERT INTO users (username, password_hash, full_name, role, is_active) VALUES (?,?,?,?,1)",
+        (username, hashed, username, 'owner')
+    )
+    db.commit()
+    db.close()
+    print(f"OK: Owner account '{username}' created. Hidden from all admin views.")
 
 
 def cmd_reset_password(args):
@@ -65,6 +91,7 @@ def cmd_list_users(args):
 
 
 COMMANDS = {
+    'create-owner':   cmd_create_owner,
     'reset-password': cmd_reset_password,
     'list-users':     cmd_list_users,
 }
