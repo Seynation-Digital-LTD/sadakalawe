@@ -139,10 +139,30 @@ def list():
         args.append(pay_status)
 
     sql += " ORDER BY d.created_at DESC LIMIT 500"
-    docs       = query_db(sql, args)
+    docs = query_db(sql, args)
+
+    # Group docs by batch_id so invoice/proforma/DN appear together
+    groups = []
+    batch_children = {}
+    for d in docs:
+        bid = d['batch_id']
+        if bid:
+            if bid not in batch_children:
+                batch_children[bid] = []
+            batch_children[bid].append(d)
+        else:
+            groups.append({'lead': d, 'children': [], 'batch_id': None})
+
+    for bid, members in batch_children.items():
+        lead = next((m for m in members if m['doc_type'] == 'invoice'), members[0])
+        children = [m for m in members if m['id'] != lead['id']]
+        groups.append({'lead': lead, 'children': children, 'batch_id': bid})
+
+    groups.sort(key=lambda g: g['lead']['created_at'], reverse=True)
+
     branches   = query_db("SELECT * FROM branches ORDER BY name")
     staff_list = query_db("SELECT id, full_name FROM users ORDER BY full_name")
-    return render_template('documents/list.html', docs=docs, branches=branches,
+    return render_template('documents/list.html', groups=groups, branches=branches,
                            staff_list=staff_list, doc_types=DOC_TYPE_LABELS,
                            q=q, doc_type=doc_type, branch_filter=branch_filter,
                            date_from=date_from, date_to=date_to,

@@ -49,13 +49,14 @@
         <tr>
           <th>Date</th><th>Product</th><th>Branch</th>
           <th>Type</th><th class="text-end">Qty</th>
-          <th>Supplier</th><th>Staff</th>
+          <th>Supplier / IMEI</th><th>Staff</th>
         </tr>
       </thead>
       <tbody>
         {% for m in moves %}
+        {% set imeis = imei_map.get(m.id, []) %}
         <tr>
-          <td class="text-muted">{{ m.created_at[:16] }}</td>
+          <td class="text-muted" style="white-space:nowrap">{{ m.created_at[:16] }}</td>
           <td class="fw-600">{{ m.brand_category }} {{ m.model }}</td>
           <td><span class="badge-branch">{{ m.branch_name[:10] }}</span></td>
           <td>
@@ -66,7 +67,30 @@
           <td class="text-end fw-bold {{ 'text-success' if m.quantity > 0 else 'text-danger' }}">
             {% if m.quantity > 0 %}+{% endif %}{{ m.quantity | int }}
           </td>
-          <td class="text-muted">{{ m.supplier or '-' }}</td>
+          <td>
+            <div class="text-muted" style="font-size:13px">{{ m.supplier or '' }}</div>
+            {% if imeis %}
+            <div style="margin-top:3px">
+              {% if imeis|length <= 2 %}
+                {% for imei in imeis %}
+                <span class="badge bg-light text-dark" style="font-family:monospace;font-size:11px;border:1px solid #ddd">
+                  <i class="bi bi-phone" style="color:var(--c-orange)"></i> {{ imei }}
+                </span>
+                {% endfor %}
+              {% else %}
+                <button class="btn btn-xs btn-outline-secondary" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#imei-{{ m.id }}">
+                  <i class="bi bi-phone"></i> {{ imeis|length }} IMEIs
+                </button>
+                <div class="collapse mt-1" id="imei-{{ m.id }}">
+                  {% for imei in imeis %}
+                  <div style="font-family:monospace;font-size:11px;color:var(--c-muted)">{{ imei }}</div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
+            {% endif %}
+          </td>
           <td class="text-muted">{{ m.staff_name or '-' }}</td>
         </tr>
         {% else %}

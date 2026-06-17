@@ -85,6 +85,19 @@
           <input type="text" name="supplier" class="form-control" placeholder="Supplier name…">
         </div>
 
+        <div class="mb-3" id="imei-section">
+          <label class="field-label">
+            IMEI Numbers
+            <span style="font-weight:400;font-size:11px;color:var(--c-muted);text-transform:none;letter-spacing:0">
+              — one per line (for phones, tablets &amp; devices with IMEI)
+            </span>
+          </label>
+          <textarea name="imeis" id="imei-input" class="form-control" rows="3"
+                    placeholder="Enter IMEI numbers here, one per line&#10;Example:&#10;358240051111110&#10;358240051111111"
+                    style="font-family:monospace;font-size:13px"></textarea>
+          <div class="field-hint">Leave blank if not applicable (e.g. accessories, cables).</div>
+        </div>
+
         <div class="mb-4">
           <label class="field-label">Notes (optional)</label>
           <textarea name="notes" class="form-control" rows="2" placeholder="Any additional notes…"></textarea>
@@ -97,4 +110,22 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const imeiSection = document.getElementById('imei-section');
+  const radios = document.querySelectorAll('input[name="movement_type"]');
+  const IMEI_TYPES = ['stock_in', 'return'];
+
+  function updateImei() {
+    const val = document.querySelector('input[name="movement_type"]:checked');
+    imeiSection.style.display = (val && IMEI_TYPES.includes(val.value)) ? '' : 'none';
+  }
+
+  radios.forEach(r => r.addEventListener('change', updateImei));
+  updateImei();
+})();
+</script>
 {% endblock %}

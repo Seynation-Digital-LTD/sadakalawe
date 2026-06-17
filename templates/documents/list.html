@@ -6,7 +6,7 @@
 <div class="page-header">
   <div>
     <h2 class="page-title">Sales Log</h2>
-    <p class="page-sub">{{ docs | length }} document{{ 's' if docs | length != 1 else '' }}</p>
+    <p class="page-sub">{{ groups | length }} sale{{ 's' if groups | length != 1 else '' }}</p>
   </div>
   <a href="{{ url_for('documents.new') }}" class="btn btn-primary">
     <i class="bi bi-plus-lg"></i> New Document
@@ -33,7 +33,7 @@
   </a>
   <a href="{{ url_for('documents.list', doc_type='invoice', payment_status='paid') }}"
      class="doc-tab doc-tab--paid {% if doc_type == 'invoice' and pay_status == 'paid' %}active{% endif %}">
-    <i class="bi bi-check-circle-fill"></i> Paid Invoices
+    <i class="bi bi-check-circle-fill"></i> Paid
   </a>
   <a href="{{ url_for('documents.list', doc_type='invoice', payment_status='credit') }}"
      class="doc-tab doc-tab--credit {% if pay_status == 'credit' %}active{% endif %}">
@@ -41,7 +41,7 @@
   </a>
 </div>
 
-<!-- Search + Advanced Filters -->
+<!-- Search + Filters -->
 <div class="card-section mb-3 py-3">
   <form method="GET" id="filter-form">
     <input type="hidden" name="doc_type" value="{{ doc_type }}">
@@ -96,97 +96,203 @@
   </form>
 </div>
 
-<!-- Documents table -->
+<!-- Grouped sales list -->
 <div class="card-section" style="overflow-x:auto">
-  <table class="data-table" style="min-width:620px">
-    <thead>
-      <tr>
-        <th>Document</th>
-        <th>Customer</th>
-        {% if current_user.is_admin %}<th>Branch</th>{% endif %}
-        {% if current_user.can('view_sales_amounts') %}<th class="text-end">Total (TZS)</th>{% endif %}
-        <th>Payment</th>
-        <th>Date</th>
-        <th style="width:90px">Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for d in docs %}
-      {% set method_map = {'cash':'Cash','card':'Card','mpesa':'M-Pesa','airtel_money':'Airtel','mixx_by_yas':'Mixx','halopesa':'Halo','bank_transfer':'Bank','credit':'Credit','other':'Other'} %}
-      <tr>
-        <td>
-          <div class="d-flex flex-column gap-1">
-            <a href="{{ url_for('documents.view', doc_id=d.id) }}" class="doc-link fw-semibold">
-              {{ d.doc_number }}
-            </a>
-            <span class="badge-doctype badge-{{ d.doc_type }}" style="font-size:10px;width:fit-content">
-              {{ d.doc_type | replace('_',' ') | title }}
-            </span>
-            {% if d.batch_id %}
-            <a href="{{ url_for('documents.view_batch', batch_id=d.batch_id) }}"
-               class="small text-muted" style="font-size:10px;text-decoration:none" title="View all 3 documents in this sale">
-              <i class="bi bi-collection"></i> View batch
-            </a>
-            {% endif %}
-          </div>
-        </td>
-        <td>
-          {% if d.customer_name %}
-            <span class="fw-medium">{{ d.customer_name }}</span>
-          {% else %}
-            <em class="text-muted">Walk-in</em>
-          {% endif %}
-          {% if current_user.is_admin %}
-          <div class="text-muted" style="font-size:11px">{{ d.staff_name }}</div>
-          {% endif %}
-        </td>
+  {% set method_map = {'cash':'Cash','card':'Card','mpesa':'M-Pesa','airtel_money':'Airtel','mixx_by_yas':'Mixx','halopesa':'Halo','bank_transfer':'Bank','credit':'Credit','other':'Other'} %}
+
+  {% if not groups %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-inbox" style="font-size:2rem;opacity:.3"></i>
+    <p class="mt-2">No documents found.</p>
+    <a href="{{ url_for('documents.new') }}" class="btn btn-sm btn-primary">Create one</a>
+  </div>
+  {% endif %}
+
+  {% for group in groups %}
+  {% set d = group.lead %}
+  {% set children = group.children %}
+  {% set has_children = children | length > 0 %}
+  {% set gid = loop.index %}
+
+  <!-- Sale group card -->
+  <div class="sale-group {% if not loop.last %}mb-2{% endif %}">
+
+    <!-- Main row (invoice / lead doc) -->
+    <div class="sale-row sale-row--lead {% if has_children %}sale-row--expandable{% endif %}"
+         {% if has_children %}onclick="toggleGroup({{ gid }})" style="cursor:pointer"{% endif %}>
+
+      <div class="sale-row__doc">
+        <a href="{{ url_for('documents.view', doc_id=d.id) }}" class="doc-link fw-semibold"
+           onclick="event.stopPropagation()">{{ d.doc_number }}</a>
+        <span class="badge-doctype badge-{{ d.doc_type }}" style="font-size:10px">
+          {{ d.doc_type | replace('_',' ') | title }}
+        </span>
+        {% if has_children %}
+        <span class="batch-pill" id="batch-pill-{{ gid }}">
+          <i class="bi bi-collection"></i> +{{ children|length }} more
+        </span>
+        {% endif %}
+      </div>
+
+      <div class="sale-row__customer">
+        {% if d.customer_name %}
+          <span class="fw-medium">{{ d.customer_name }}</span>
+        {% else %}
+          <em class="text-muted">Walk-in</em>
+        {% endif %}
         {% if current_user.is_admin %}
-        <td class="text-muted small">{{ d.branch_name }}</td>
+        <div class="text-muted" style="font-size:11px">{{ d.staff_name }}</div>
         {% endif %}
-        {% if current_user.can('view_sales_amounts') %}
-        <td class="text-end fw-semibold">{{ "{:,.0f}".format(d.total or 0) }}</td>
+      </div>
+
+      {% if current_user.is_admin %}
+      <div class="sale-row__branch text-muted small">{{ d.branch_name }}</div>
+      {% endif %}
+
+      {% if current_user.can('view_sales_amounts') %}
+      <div class="sale-row__total fw-semibold">{{ "{:,.0f}".format(d.total or 0) }}</div>
+      {% endif %}
+
+      <div class="sale-row__payment">
+        {% if d.payment_status == 'credit' %}
+        <span class="badge-status badge-warning">Credit</span>
+        {% elif d.payment_status == 'partial' %}
+        <span class="badge-status badge-warning">Partial</span>
+        {% else %}
+        <span class="badge-status badge-success">
+          {{ method_map.get(d.payment_method or 'cash', 'Paid') }}
+        </span>
         {% endif %}
-        <td>
-          {% if d.payment_status == 'credit' %}
-          <span class="badge-status badge-warning">Credit</span>
-          {% elif d.payment_status == 'partial' %}
-          <span class="badge-status badge-warning">Partial</span>
-          {% else %}
-          <span class="badge-status badge-success">
-            {{ method_map.get(d.payment_method or 'cash', 'Paid') }}
+      </div>
+
+      <div class="sale-row__date text-muted small" style="white-space:nowrap">{{ d.created_at[:10] }}</div>
+
+      <div class="sale-row__actions">
+        <a href="{{ url_for('documents.view', doc_id=d.id) }}"
+           class="btn btn-xs btn-outline-secondary" title="View" onclick="event.stopPropagation()">
+          <i class="bi bi-eye"></i>
+        </a>
+        <a href="{{ url_for('documents.download_pdf', doc_id=d.id) }}" target="_blank"
+           class="btn btn-xs btn-outline-danger" title="PDF" onclick="event.stopPropagation()">
+          <i class="bi bi-file-pdf"></i>
+        </a>
+        {% if current_user.is_admin and d.doc_type == 'invoice' and d.payment_status in ('credit','partial') %}
+        <a href="{{ url_for('credits.detail', doc_id=d.id) }}"
+           class="btn btn-xs btn-outline-warning" title="Record Payment" onclick="event.stopPropagation()">
+          <i class="bi bi-cash"></i>
+        </a>
+        {% endif %}
+        {% if has_children %}
+        <span class="expand-icon text-muted" id="expand-icon-{{ gid }}">
+          <i class="bi bi-chevron-down"></i>
+        </span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Child rows (proforma + delivery note) — collapsed by default -->
+    {% if has_children %}
+    <div class="sale-children" id="sale-children-{{ gid }}" style="display:none">
+      {% for c in children %}
+      <div class="sale-row sale-row--child">
+        <div class="sale-row__doc">
+          <a href="{{ url_for('documents.view', doc_id=c.id) }}" class="doc-link" style="font-size:13px">
+            {{ c.doc_number }}
+          </a>
+          <span class="badge-doctype badge-{{ c.doc_type }}" style="font-size:10px">
+            {{ c.doc_type | replace('_',' ') | title }}
           </span>
-          {% endif %}
-        </td>
-        <td class="text-muted small" style="white-space:nowrap">{{ d.created_at[:10] }}</td>
-        <td>
-          <div class="d-flex gap-1">
-            <a href="{{ url_for('documents.view', doc_id=d.id) }}"
-               class="btn btn-xs btn-outline-secondary" title="View">
-              <i class="bi bi-eye"></i>
-            </a>
-            <a href="{{ url_for('documents.download_pdf', doc_id=d.id) }}" target="_blank"
-               class="btn btn-xs btn-outline-danger" title="PDF">
-              <i class="bi bi-file-pdf"></i>
-            </a>
-            {% if current_user.is_admin and d.doc_type == 'invoice' and d.payment_status in ('credit','partial') %}
-            <a href="{{ url_for('credits.detail', doc_id=d.id) }}"
-               class="btn btn-xs btn-outline-warning" title="Record Payment">
-              <i class="bi bi-cash"></i>
-            </a>
-            {% endif %}
-          </div>
-        </td>
-      </tr>
-      {% else %}
-      <tr>
-        <td colspan="8" class="text-center text-muted py-5">
-          <i class="bi bi-inbox" style="font-size:2rem;opacity:.3"></i>
-          <p class="mt-2">No documents found.</p>
-          <a href="{{ url_for('documents.new') }}" class="btn btn-sm btn-primary">Create one</a>
-        </td>
-      </tr>
+        </div>
+        <div class="sale-row__customer text-muted" style="font-size:13px">
+          {{ c.customer_name or 'Walk-in' }}
+        </div>
+        {% if current_user.is_admin %}<div class="sale-row__branch"></div>{% endif %}
+        {% if current_user.can('view_sales_amounts') %}<div class="sale-row__total text-muted" style="font-size:12px">{{ "{:,.0f}".format(c.total or 0) }}</div>{% endif %}
+        <div class="sale-row__payment"></div>
+        <div class="sale-row__date text-muted" style="font-size:12px">{{ c.created_at[:10] }}</div>
+        <div class="sale-row__actions">
+          <a href="{{ url_for('documents.view', doc_id=c.id) }}"
+             class="btn btn-xs btn-outline-secondary" title="View"><i class="bi bi-eye"></i></a>
+          <a href="{{ url_for('documents.download_pdf', doc_id=c.id) }}" target="_blank"
+             class="btn btn-xs btn-outline-danger" title="PDF"><i class="bi bi-file-pdf"></i></a>
+        </div>
+      </div>
       {% endfor %}
-    </tbody>
-  </table>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+.sale-group {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--c-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.sale-row {
+  display: grid;
+  grid-template-columns:
+    200px          /* doc number + type */
+    1fr            /* customer */
+    {% if current_user.is_admin %}120px{% endif %}  /* branch */
+    {% if current_user.can('view_sales_amounts') %}120px{% endif %}  /* total */
+    100px          /* payment */
+    90px           /* date */
+    110px;         /* actions */
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--c-surface-high);
+}
+.sale-row:last-child { border-bottom: none; }
+
+.sale-row--lead {
+  background: var(--c-card);
+  transition: background .12s;
+}
+.sale-row--lead:hover { background: var(--c-surface-low); }
+
+.sale-row--child {
+  background: var(--c-surface-low);
+  padding: 8px 16px 8px 32px;
+}
+
+.sale-row__doc { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sale-row__customer { min-width: 0; }
+.sale-row__actions { display: flex; gap: 4px; align-items: center; }
+
+.batch-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  background: var(--c-orange-lt);
+  color: var(--c-orange-dk);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.expand-icon { font-size: 13px; transition: transform .2s; }
+.expand-icon.rotated { transform: rotate(180deg); }
+</style>
+
+<script>
+function toggleGroup(gid) {
+  const children = document.getElementById('sale-children-' + gid);
+  const icon = document.getElementById('expand-icon-' + gid);
+  const pill = document.getElementById('batch-pill-' + gid);
+  if (!children) return;
+  const open = children.style.display !== 'none';
+  children.style.display = open ? 'none' : '';
+  if (icon) icon.classList.toggle('rotated', !open);
+}
+</script>
 {% endblock %}

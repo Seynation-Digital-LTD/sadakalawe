@@ -106,6 +106,8 @@ def adjust():
 
         supplier = request.form.get('supplier', '').strip() or None
         notes = request.form.get('notes', '').strip() or None
+        imei_raw = request.form.get('imeis', '').strip()
+        imeis = [x.strip() for x in imei_raw.replace(',', '\n').splitlines() if x.strip()]
 
         # Determine signed quantity (+/-) for movements
         if movement_type in ('sale', 'adjustment_out', 'transfer_out'):
@@ -113,12 +115,23 @@ def adjust():
         else:
             signed_qty = abs(quantity)
 
-        execute_db("""
+        db = get_db()
+        db.execute("""
             INSERT INTO stock_movements
               (product_id, branch_id, movement_type, quantity, supplier, notes, recorded_by)
             VALUES (?,?,?,?,?,?,?)
         """, (product_id, branch_id, movement_type, signed_qty,
               supplier, notes, current_user.id))
+        movement_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        for imei in imeis:
+            try:
+                db.execute(
+                    "INSERT INTO device_imeis (product_id, branch_id, imei, stock_movement_id) VALUES (?,?,?,?)",
+                    (product_id, branch_id, imei, movement_id))
+            except Exception:
+                pass  # skip duplicate IMEIs silently
+        db.commit()
 
         # Update product_stock table
         execute_db("""
@@ -177,13 +190,26 @@ def movements():
     sql += " ORDER BY sm.created_at DESC LIMIT 500"
 
     moves = query_db(sql, args)
+
+    # Fetch IMEIs keyed by movement_id
+    move_ids = [m['id'] for m in moves]
+    imei_map = {}
+    if move_ids:
+        placeholders = ','.join('?' * len(move_ids))
+        imei_rows = query_db(
+            f"SELECT stock_movement_id, imei FROM device_imeis WHERE stock_movement_id IN ({placeholders})",
+            move_ids)
+        for row in imei_rows:
+            imei_map.setdefault(row['stock_movement_id'], []).append(row['imei'])
+
     branches = query_db("SELECT * FROM branches ORDER BY name")
     products = query_db(
         "SELECT id, brand_category, model FROM products WHERE is_active=1 ORDER BY brand_category, model")
 
     return render_template('stock/movements.html',
                            moves=moves, branches=branches, products=products,
-                           branch_filter=branch_id, product_filter=product_id)
+                           branch_filter=branch_id, product_filter=product_id,
+                           imei_map=imei_map)
 
 
 @bp.route('/api/product-stock')

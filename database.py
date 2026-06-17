@@ -184,6 +184,16 @@ def _create_tables(db):
             permission TEXT NOT NULL,
             PRIMARY KEY (user_id, permission)
         );
+
+        CREATE TABLE IF NOT EXISTS device_imeis (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id        INTEGER NOT NULL REFERENCES products(id),
+            branch_id         INTEGER NOT NULL REFERENCES branches(id),
+            imei              TEXT NOT NULL UNIQUE,
+            status            TEXT NOT NULL DEFAULT 'in_stock',
+            stock_movement_id INTEGER REFERENCES stock_movements(id),
+            created_at        TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
     """)
 
 
@@ -254,7 +264,7 @@ def _seed_data(db):
 
 def _seed_products(db):
     """Seed the default product catalog. Skips if already seeded (>=200 SDA products)."""
-    if db.execute("SELECT COUNT(*) FROM products WHERE sku LIKE 'SDA-%'").fetchone()[0] >= 200:
+    if db.execute("SELECT COUNT(*) FROM products WHERE sku LIKE 'SDA-%'").fetchone()[0] >= 220:
         return
     db.execute("DELETE FROM products WHERE sku LIKE 'SDA-%'")  # clean partial seeds
 
@@ -322,6 +332,22 @@ def _seed_products(db):
         ('iPhone 16e 256GB',       'Black / White', 1_750_000),
     ]:
         add(2, 'iPhone 16 Series', model, desc, price)
+
+    for model, desc, price in [
+        ('iPhone 17 128GB',          'Black / White / Sky Blue / Teal / Sand', 2_600_000),
+        ('iPhone 17 256GB',          'Black / White / Sky Blue / Teal / Sand', 2_900_000),
+        ('iPhone 17 512GB',          'Black / White / Sky Blue / Teal / Sand', 3_300_000),
+        ('iPhone 17 Air 128GB',      'Black / White / Sky Blue / Ultramarine', 2_800_000),
+        ('iPhone 17 Air 256GB',      'Black / White / Sky Blue / Ultramarine', 3_100_000),
+        ('iPhone 17 Air 512GB',      'Black / White / Sky Blue / Ultramarine', 3_500_000),
+        ('iPhone 17 Pro 256GB',      'Black Titanium / White Titanium / Natural Titanium / Desert Titanium', 3_700_000),
+        ('iPhone 17 Pro 512GB',      'Black Titanium / White Titanium / Natural Titanium / Desert Titanium', 4_200_000),
+        ('iPhone 17 Pro 1TB',        'Black Titanium / White Titanium / Natural Titanium / Desert Titanium', 4_800_000),
+        ('iPhone 17 Pro Max 256GB',  'Black Titanium / White Titanium / Natural Titanium / Desert Titanium', 4_300_000),
+        ('iPhone 17 Pro Max 512GB',  'Black Titanium / White Titanium / Natural Titanium / Desert Titanium', 4_800_000),
+        ('iPhone 17 Pro Max 1TB',    'Black Titanium / White Titanium / Natural Titanium / Desert Titanium', 5_400_000),
+    ]:
+        add(2, 'iPhone 17 Series', model, desc, price)
 
     for model, desc, price in [
         ('iPhone 15 128GB',     'Black / Yellow / Green / Blue / Pink', 1_900_000),
@@ -471,7 +497,13 @@ def _seed_products(db):
     add(4, 'JBL Soundbars','JBL Bar 1000',  '7.1.4ch, 880W, Dolby Atmos, detachable surround + up-firing', 2_200_000)
 
     # ── Accessories ───────────────────────────────────────────────────
-    add(5, 'Cases & Covers', 'iPhone 16 Silicone Case (Apple)',      'MagSafe compatible, various colors', 55_000)
+    add(5, 'Cases & Covers', 'iPhone 17 Silicone Case (Apple)',      'MagSafe compatible, various colors', 60_000)
+    add(5, 'Cases & Covers', 'iPhone 17 Air Silicone Case (Apple)', 'MagSafe compatible, various colors', 65_000)
+    add(5, 'Cases & Covers', 'iPhone 17 Pro Silicone Case (Apple)', 'MagSafe compatible, various colors', 65_000)
+    add(5, 'Cases & Covers', 'iPhone 17 Pro Max Silicone Case',     'MagSafe compatible, various colors', 70_000)
+    add(5, 'Cases & Covers', 'iPhone 17 Clear Case (Apple)',         'MagSafe compatible', 55_000)
+    add(5, 'Cases & Covers', 'iPhone 17 Pro Clear Case (Apple)',     'MagSafe compatible', 60_000)
+    add(5, 'Cases & Covers', 'iPhone 17 Silicone Case (Apple)',      'MagSafe compatible, various colors', 55_000)
     add(5, 'Cases & Covers', 'iPhone 16 Pro Silicone Case (Apple)',  'MagSafe compatible, various colors', 60_000)
     add(5, 'Cases & Covers', 'iPhone 16 Pro Max Silicone Case',      'MagSafe compatible, various colors', 65_000)
     add(5, 'Cases & Covers', 'iPhone 15 Silicone Case (Apple)',      'MagSafe compatible', 50_000)
@@ -486,6 +518,10 @@ def _seed_products(db):
     add(5, 'Cases & Covers', 'MacBook Pro 14" Hard Shell Case',      'Fits M3/M4 models', 50_000)
     add(5, 'Cases & Covers', 'MacBook Pro 16" Hard Shell Case',      'Fits M3/M4 models', 55_000)
 
+    add(5, 'Screen Protectors', 'iPhone 17 Tempered Glass (2-pack)',          '9H hardness, full cover', 14_000)
+    add(5, 'Screen Protectors', 'iPhone 17 Air Tempered Glass (2-pack)',     '9H hardness, full cover', 14_000)
+    add(5, 'Screen Protectors', 'iPhone 17 Pro Tempered Glass (2-pack)',     '9H hardness, full cover', 15_000)
+    add(5, 'Screen Protectors', 'iPhone 17 Pro Max Tempered Glass (2-pack)', '9H hardness, full cover', 16_000)
     add(5, 'Screen Protectors', 'iPhone 16 Tempered Glass (2-pack)',         '9H hardness, full cover', 12_000)
     add(5, 'Screen Protectors', 'iPhone 16 Pro Tempered Glass (2-pack)',     '9H hardness, full cover', 14_000)
     add(5, 'Screen Protectors', 'iPhone 16 Pro Max Tempered Glass (2-pack)', '9H hardness, full cover', 15_000)
