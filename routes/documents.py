@@ -522,8 +522,8 @@ def convert(doc_id):
           (doc_number, doc_type, branch_id, customer_id, created_by,
            is_vat, vat_rate, efd_reference, subtotal, vat_amount, total,
            notes, validity_days, status, payment_status, payment_method,
-           amount_paid, credit_due_date, walkin_name)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           amount_paid, credit_due_date, walkin_name, batch_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         doc_number, target_type, source['branch_id'], source['customer_id'],
         current_user.id,
@@ -531,7 +531,7 @@ def convert(doc_id):
         source['subtotal'], source['vat_amount'], source['total'],
         notes, source['validity_days'], 'final',
         pay_status, actual_method, amount_paid, credit_due,
-        source['walkin_name'],
+        source['walkin_name'], source['batch_id'],
     ))
 
     for item in items:
