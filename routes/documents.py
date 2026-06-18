@@ -436,7 +436,8 @@ def view(doc_id):
     wa = _wa_url(dict(doc), [dict(i) for i in items], label, doc['customer_phone'])
     return render_template('documents/view.html', doc=doc, items=items,
                            payments=payments, siblings=siblings,
-                           doc_type_label=label, wa_url=wa)
+                           doc_type_label=label, wa_url=wa,
+                           today=date.today().isoformat())
 
 
 @bp.route('/<int:doc_id>/pdf')

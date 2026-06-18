@@ -159,9 +159,10 @@ def record_payment(doc_id):
     )
 
     flash(f'Payment of TZS {amount:,.0f} recorded. '
-          + (f'Fully paid!' if new_status == 'paid'
+          + ('Fully paid!' if new_status == 'paid'
              else f'Remaining: TZS {new_balance:,.0f}'), 'success')
-    return redirect(url_for('credits.detail', doc_id=doc_id))
+    next_url = request.form.get('next') or request.args.get('next')
+    return redirect(next_url if next_url else url_for('credits.detail', doc_id=doc_id))
 
 
 @bp.route('/<int:doc_id>/payments/<int:payment_id>/receipt')
