@@ -57,3 +57,9 @@ BRAND_CATEGORIES = ['MacBook', 'iPhone', 'Anker', 'JBL', 'Accessories', 'Other']
 SECRET_KEY = os.environ.get('SECRET_KEY', 'sadakalawe-2026-change-in-production-xK9mP2qR')
 DATABASE = os.path.join(BASE_DIR, 'data', 'sadakalawe.db')
 BACKUP_DIR = os.path.join(BASE_DIR, 'backups')
+
+MAIL_SERVER   = os.environ.get('MAIL_SERVER',   'smtp.gmail.com')
+MAIL_PORT     = int(os.environ.get('MAIL_PORT',   '465'))
+MAIL_USERNAME = os.environ.get('MAIL_USERNAME',  '')
+MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD',  '')
+MAIL_FROM     = os.environ.get('MAIL_FROM',      '')

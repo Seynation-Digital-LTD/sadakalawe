@@ -54,7 +54,7 @@
         <i class="bi bi-receipt"></i> Linked sale: <strong>{{ item.linked_doc_number }}</strong>
       </div>
       {% endif %}
-      <div class="small text-muted mt-1">{{ item.created_at[:10] }}</div>
+      <div class="small text-muted mt-1">{{ item.created_at | dt }}</div>
     </div>
   </div>
 

@@ -34,7 +34,7 @@
     </div>
     <div class="col-sm-3">
       <div class="text-muted small">Date</div>
-      <div class="fw-semibold">{{ first.created_at[:10] }}</div>
+      <div class="fw-semibold">{{ first.created_at | dt }}</div>
     </div>
     <div class="col-sm-2">
       <div class="text-muted small">Branch</div>

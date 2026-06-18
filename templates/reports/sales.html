@@ -94,7 +94,7 @@
         {% for d in docs %}
         <tr>
           <td><a href="{{ url_for('documents.view', doc_id=d.id) }}" class="doc-link">{{ d.doc_number }}</a></td>
-          <td>{{ d.created_at[:10] }}</td>
+          <td>{{ d.created_at | dt }}</td>
           <td>{{ d.customer_name or 'Walk-in' }}</td>
           <td><span class="badge-branch">{{ d.branch_name[:8] }}</span></td>
           <td class="text-muted">{{ d.staff_name }}</td>

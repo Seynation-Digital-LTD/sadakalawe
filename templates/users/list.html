@@ -58,7 +58,7 @@
           <span class="badge bg-danger-subtle text-danger">Inactive</span>
           {% endif %}
         </td>
-        <td class="text-muted small">{{ u.created_at[:10] }}</td>
+        <td class="text-muted small">{{ u.created_at | dt }}</td>
         <td>
           <a href="{{ url_for('auth.user_edit', user_id=u.id) }}"
              class="btn btn-xs btn-outline-primary">

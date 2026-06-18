@@ -25,7 +25,7 @@
       <div class="section-header"><i class="bi bi-file-earmark-text"></i> Invoice Summary</div>
       <dl class="detail-list mt-2">
         <dt>Number</dt><dd><span class="doc-link">{{ doc.doc_number }}</span></dd>
-        <dt>Date</dt><dd>{{ doc.created_at[:10] }}</dd>
+        <dt>Date</dt><dd>{{ doc.created_at | dt }}</dd>
         <dt>Customer</dt><dd>{{ doc.customer_name or 'Walk-in' }}</dd>
         {% if doc.customer_phone %}<dt>Phone</dt><dd>{{ doc.customer_phone }}</dd>{% endif %}
         <dt>Branch</dt><dd>{{ doc.branch_name }}</dd>
@@ -130,7 +130,7 @@
         <tbody>
           {% for p in payments %}
           <tr>
-            <td>{{ p.payment_date }}</td>
+            <td>{{ p.payment_date | dt }}</td>
             <td>{{ p.payment_method | replace('_',' ') | title }}</td>
             <td class="text-muted">{{ p.reference or '—' }}</td>
             <td class="text-end fw-bold text-success">TZS {{ '{:,.0f}'.format(p.amount) }}</td>

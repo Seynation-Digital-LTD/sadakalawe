@@ -1,7 +1,36 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+import os
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
 from flask_login import login_required, current_user
 from database import execute_db, query_db
 from routes.auth import perm_required
+
+ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
+
+
+def _save_product_image(product_id, file):
+    """Save uploaded image file, return relative path or None."""
+    if not file or not file.filename:
+        return None
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        return None
+    img_dir = os.path.join(current_app.root_path, 'static', 'product_images')
+    os.makedirs(img_dir, exist_ok=True)
+    filename = f"{product_id}.{ext}"
+    file.save(os.path.join(img_dir, filename))
+    return f"product_images/{filename}"
+
+
+def _delete_old_image(image_path):
+    """Delete the old image file from disk if it exists."""
+    if not image_path:
+        return
+    full_path = os.path.join(current_app.root_path, 'static', image_path)
+    if os.path.exists(full_path):
+        try:
+            os.remove(full_path)
+        except OSError:
+            pass
 
 bp = Blueprint('products', __name__, url_prefix='/products')
 
@@ -114,6 +143,13 @@ def new():
             request.form.get('sku', '').strip() or None,
         ))
 
+        # Handle image upload
+        image_file = request.files.get('image')
+        if image_file and image_file.filename:
+            img_path = _save_product_image(pid, image_file)
+            if img_path:
+                execute_db("UPDATE products SET image_path=? WHERE id=?", (img_path, pid))
+
         # Ensure product_stock rows exist for all branches
         branches = query_db("SELECT id FROM branches")
         for b in branches:
@@ -164,11 +200,20 @@ def edit(product_id):
         cat = query_db("SELECT name FROM product_categories WHERE id=?", (cat_id,), one=True)
         brand_category = cat['name'] if cat else 'Other'
 
+        # Handle image upload on edit
+        image_file = request.files.get('image')
+        new_image_path = product['image_path'] if product['image_path'] else None
+        if image_file and image_file.filename:
+            ext = image_file.filename.rsplit('.', 1)[-1].lower() if '.' in image_file.filename else ''
+            if ext in ALLOWED_IMAGE_EXTENSIONS:
+                _delete_old_image(product['image_path'])
+                new_image_path = _save_product_image(product_id, image_file)
+
         execute_db("""
             UPDATE products SET
               brand_category=?, category_id=?, subcategory_id=?,
               model=?, description=?, price=?, cost_price=?, stock_count=?, sku=?,
-              is_active=?, updated_at=datetime('now','localtime')
+              is_active=?, image_path=?, updated_at=datetime('now','localtime')
             WHERE id=?
         """, (
             brand_category,
@@ -181,6 +226,7 @@ def edit(product_id):
             int(request.form.get('stock_count', 0) or 0),
             request.form.get('sku', '').strip() or None,
             is_active,
+            new_image_path,
             product_id,
         ))
         flash('Product updated.', 'success')

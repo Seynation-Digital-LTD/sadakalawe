@@ -40,6 +40,9 @@
             onclick="waSendPdf(this)">
       <i class="bi bi-whatsapp"></i> WhatsApp
     </button>
+    <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#emailModal">
+      <i class="bi bi-envelope"></i> Email
+    </button>
     {% if doc.doc_type == 'invoice' and current_user.can('create_documents') %}
     <a href="{{ url_for('financing.new', from_doc=doc.id) }}" class="btn btn-outline-primary">
       <i class="bi bi-calendar-check"></i> Financing Plan
@@ -59,6 +62,45 @@
       </button>
     </form>
     {% endif %}
+  </div>
+</div>
+
+<!-- Email Document modal -->
+<div class="modal fade" id="emailModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="border-bottom:3px solid var(--c-orange)">
+        <h5 class="modal-title fw-bold">
+          <i class="bi bi-envelope me-2" style="color:var(--c-orange)"></i>
+          Email Document
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('documents.email_document', doc_id=doc.id) }}">
+        <div class="modal-body">
+          <p class="text-muted mb-3">
+            Send <strong>{{ doc.doc_number }}</strong> as a PDF attachment to the customer's email.
+          </p>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Email Address <span class="text-danger">*</span></label>
+            <input type="email" name="to_email" class="form-control"
+                   value="{{ doc.customer_email or '' }}"
+                   placeholder="customer@example.com" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Personal Message (optional)</label>
+            <textarea name="message" class="form-control form-control-sm" rows="3"
+                      placeholder="Add a personal note to include in the email body…"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-send"></i> Send Email
+          </button>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 
@@ -328,7 +370,7 @@
     <div>
       <table class="doc-info-table">
         <tr><th>Document No.</th><td>{{ doc.doc_number }}</td></tr>
-        <tr><th>Date</th><td>{{ doc.created_at[:10] }}</td></tr>
+        <tr><th>Date</th><td>{{ doc.created_at | dt }}</td></tr>
         <tr><th>Branch</th><td>{{ doc.branch_name }}</td></tr>
         <tr><th>Prepared by</th><td>{{ doc.staff_name }}</td></tr>
         {% if doc.doc_type == 'proforma' %}
@@ -466,7 +508,7 @@
         {% set method_labels = {'cash':'Cash','card':'Card / POS','mpesa':'M-Pesa','airtel_money':'Airtel Money','mixx_by_yas':'Mixx by Yas','halopesa':'Halopesa','bank_transfer':'Bank Transfer','other':'Other'} %}
         {% for p in payments %}
         <tr>
-          <td class="ps-3">{{ p.payment_date }}</td>
+          <td class="ps-3">{{ p.payment_date | dt }}</td>
           <td>{{ method_labels.get(p.payment_method, p.payment_method) }}</td>
           <td class="text-muted">{{ p.reference or '—' }}</td>
           <td class="text-end pe-3 fw-bold" style="color:var(--c-orange)">TZS {{ "{:,.0f}".format(p.amount) }}</td>

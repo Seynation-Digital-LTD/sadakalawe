@@ -50,7 +50,7 @@
             <td><a href="{{ url_for('documents.view', doc_id=d.id) }}" class="doc-link">{{ d.doc_number }}</a></td>
             <td><span class="badge-doctype badge-{{ d.doc_type }}">{{ d.doc_type | replace('_',' ') | title }}</span></td>
             <td class="text-end fw-semibold">TZS {{ "{:,.0f}".format(d.total or 0) }}</td>
-            <td class="text-muted small">{{ d.created_at[:10] }}</td>
+            <td class="text-muted small">{{ d.created_at | dt }}</td>
             <td>
               <a href="{{ url_for('documents.download_pdf', doc_id=d.id) }}" target="_blank"
                  class="btn btn-xs btn-outline-secondary">

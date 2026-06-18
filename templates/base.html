@@ -80,6 +80,10 @@
          class="nav-link {% if active == 'products' %}active{% endif %}">
         <i class="bi bi-box-seam"></i> Product Catalog
       </a>
+      <a href="{{ url_for('import_data.index') }}"
+         class="nav-link {% if active == 'import' %}active{% endif %}">
+        <i class="bi bi-upload"></i> Import Data
+      </a>
 
       <div class="nav-section-label mt-3">Reports</div>
       <a href="{{ url_for('reports.sales_report') }}"

@@ -1,0 +1,196 @@
+{% extends 'base.html' %}
+{% set active = 'import' %}
+{% block title %}Import Data{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Import Data</h2>
+    <p class="page-sub">Bulk import products or customers from CSV, Excel, or vCard files</p>
+  </div>
+</div>
+
+<div class="row g-4">
+
+  <!-- Products Import -->
+  <div class="col-lg-6">
+    <div class="card-section h-100">
+      <h5 class="fw-bold mb-1"><i class="bi bi-box-seam me-2" style="color:var(--c-orange)"></i>Import Products</h5>
+      <p class="text-muted small mb-3">Accepted formats: CSV, XLSX, XLS</p>
+
+      <table class="table table-sm table-bordered mb-3" style="font-size:12px">
+        <thead style="background:var(--c-surface-low,#f5f3f3)">
+          <tr>
+            <th>Column</th>
+            <th>Required?</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>model</code></td><td><span class="badge bg-danger-subtle text-danger">Yes</span></td><td>Product name / model</td></tr>
+          <tr><td><code>brand_category</code> or <code>category</code></td><td>No</td><td>Matched against catalog categories</td></tr>
+          <tr><td><code>description</code></td><td>No</td><td>Optional specs or variants</td></tr>
+          <tr><td><code>price</code></td><td>No</td><td>Selling price (TZS)</td></tr>
+          <tr><td><code>cost_price</code></td><td>No</td><td>Buying price (TZS)</td></tr>
+          <tr><td><code>stock_count</code></td><td>No</td><td>Initial stock</td></tr>
+          <tr><td><code>sku</code></td><td>No</td><td>Your own reference code</td></tr>
+        </tbody>
+      </table>
+
+      <a href="{{ url_for('static', filename='samples/sample_products.csv') }}"
+         class="btn btn-sm btn-outline-secondary mb-3">
+        <i class="bi bi-download"></i> Download Sample CSV
+      </a>
+
+      <div id="products-drop" class="import-drop-zone" ondragover="event.preventDefault()" ondrop="handleDrop(event,'products')">
+        <i class="bi bi-cloud-upload" style="font-size:2rem;color:var(--c-orange);opacity:.7"></i>
+        <p class="mt-2 mb-1 fw-semibold">Drag &amp; drop file here</p>
+        <p class="text-muted small mb-3">or click to browse</p>
+        <input type="file" id="products-file" accept=".csv,.xlsx,.xls" style="display:none"
+               onchange="uploadFile('products', this)">
+        <button type="button" class="btn btn-primary btn-sm"
+                onclick="document.getElementById('products-file').click()">
+          <i class="bi bi-folder2-open"></i> Choose File
+        </button>
+      </div>
+
+      <div id="products-result" class="mt-3" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- Customers Import -->
+  <div class="col-lg-6">
+    <div class="card-section h-100">
+      <h5 class="fw-bold mb-1"><i class="bi bi-people me-2" style="color:var(--c-orange)"></i>Import Customers</h5>
+      <p class="text-muted small mb-3">Accepted formats: CSV, XLSX, XLS, VCF (vCard)</p>
+
+      <table class="table table-sm table-bordered mb-3" style="font-size:12px">
+        <thead style="background:var(--c-surface-low,#f5f3f3)">
+          <tr>
+            <th>Column</th>
+            <th>Required?</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>name</code></td><td><span class="badge bg-danger-subtle text-danger">Yes</span></td><td>Customer full name</td></tr>
+          <tr><td><code>phone</code></td><td>No</td><td>Phone number</td></tr>
+          <tr><td><code>email</code></td><td>No</td><td>Email address</td></tr>
+          <tr><td><code>tin</code></td><td>No</td><td>Tax Identification Number</td></tr>
+          <tr><td><code>address</code></td><td>No</td><td>Physical address</td></tr>
+          <tr><td><code>notes</code></td><td>No</td><td>Any notes</td></tr>
+        </tbody>
+      </table>
+
+      <p class="text-muted small mb-3">
+        <i class="bi bi-phone-fill me-1" style="color:var(--c-orange)"></i>
+        <strong>vCard (.vcf):</strong> Export contacts from your phone and import directly.
+        <code>FN</code>, <code>TEL</code>, <code>EMAIL</code>, and <code>ADR</code> fields are parsed automatically.
+      </p>
+
+      <div id="customers-drop" class="import-drop-zone" ondragover="event.preventDefault()" ondrop="handleDrop(event,'customers')">
+        <i class="bi bi-cloud-upload" style="font-size:2rem;color:var(--c-orange);opacity:.7"></i>
+        <p class="mt-2 mb-1 fw-semibold">Drag &amp; drop file here</p>
+        <p class="text-muted small mb-3">or click to browse</p>
+        <input type="file" id="customers-file" accept=".csv,.xlsx,.xls,.vcf" style="display:none"
+               onchange="uploadFile('customers', this)">
+        <button type="button" class="btn btn-primary btn-sm"
+                onclick="document.getElementById('customers-file').click()">
+          <i class="bi bi-folder2-open"></i> Choose File
+        </button>
+      </div>
+
+      <div id="customers-result" class="mt-3" style="display:none"></div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+.import-drop-zone {
+  border: 2px dashed var(--c-border, #e1bfb3);
+  border-radius: 12px;
+  padding: 28px 20px;
+  text-align: center;
+  transition: border-color .2s, background .2s;
+  cursor: pointer;
+}
+.import-drop-zone:hover, .import-drop-zone.dragover {
+  border-color: var(--c-orange, #F26522);
+  background: #fff7ed;
+}
+</style>
+<script>
+function handleDrop(event, type) {
+  event.preventDefault();
+  const dt   = event.dataTransfer;
+  const file = dt.files[0];
+  if (!file) return;
+  const inp = document.getElementById(type + '-file');
+  const dt2 = new DataTransfer();
+  dt2.items.add(file);
+  inp.files = dt2.files;
+  uploadFile(type, inp);
+}
+
+async function uploadFile(type, input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const resultEl = document.getElementById(type + '-result');
+  resultEl.style.display = '';
+  resultEl.innerHTML = '<div class="d-flex align-items-center gap-2 text-muted"><div class="spinner-border spinner-border-sm"></div> Uploading <strong>' + file.name + '</strong>…</div>';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const resp = await fetch('/import/' + type, {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await resp.json();
+    _showResult(type, data);
+  } catch (e) {
+    resultEl.innerHTML = '<div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle me-1"></i>Upload failed: ' + e.message + '</div>';
+  }
+  // Reset file input so the same file can be re-uploaded if needed
+  input.value = '';
+}
+
+function _showResult(type, data) {
+  const resultEl = document.getElementById(type + '-result');
+  const ok  = data.imported || 0;
+  const sk  = data.skipped  || 0;
+  const errs = data.errors  || [];
+
+  let html = '<div class="alert alert-' + (ok > 0 ? 'success' : 'warning') + ' mb-0">';
+  html += '<i class="bi bi-check2-circle me-1"></i>';
+  html += '<strong>' + ok + ' imported</strong>';
+  if (sk)  html += ', <span class="text-muted">' + sk + ' skipped (duplicates)</span>';
+  html += '</div>';
+
+  if (errs.length) {
+    html += '<div class="alert alert-danger mt-2 mb-0" style="font-size:12px">';
+    html += '<strong>Errors:</strong><ul class="mb-0 mt-1 ps-3">';
+    errs.slice(0, 10).forEach(e => { html += '<li>' + e + '</li>'; });
+    if (errs.length > 10) html += '<li>…and ' + (errs.length - 10) + ' more</li>';
+    html += '</ul></div>';
+  }
+
+  resultEl.style.display = '';
+  resultEl.innerHTML = html;
+}
+
+// Drag-over highlight
+['products-drop', 'customers-drop'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('dragenter', () => el.classList.add('dragover'));
+  el.addEventListener('dragleave', () => el.classList.remove('dragover'));
+  el.addEventListener('drop',      () => el.classList.remove('dragover'));
+});
+</script>
+{% endblock %}

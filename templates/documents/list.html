@@ -165,7 +165,7 @@
         {% endif %}
       </div>
 
-      <div class="sale-row__date text-muted small" style="white-space:nowrap">{{ d.created_at[:10] }}</div>
+      <div class="sale-row__date text-muted small" style="white-space:nowrap">{{ d.created_at | dt }}</div>
 
       <div class="sale-row__actions">
         <a href="{{ url_for('documents.view', doc_id=d.id) }}"
@@ -209,7 +209,7 @@
         {% if current_user.is_admin %}<div class="sale-row__branch"></div>{% endif %}
         {% if current_user.can('view_sales_amounts') %}<div class="sale-row__total text-muted" style="font-size:12px">{{ "{:,.0f}".format(c.total or 0) }}</div>{% endif %}
         <div class="sale-row__payment"></div>
-        <div class="sale-row__date text-muted" style="font-size:12px">{{ c.created_at[:10] }}</div>
+        <div class="sale-row__date text-muted" style="font-size:12px">{{ c.created_at | dt }}</div>
         <div class="sale-row__actions">
           <a href="{{ url_for('documents.view', doc_id=c.id) }}"
              class="btn btn-xs btn-outline-secondary" title="View"><i class="bi bi-eye"></i></a>

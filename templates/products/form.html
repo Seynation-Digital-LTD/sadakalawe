@@ -14,7 +14,7 @@
 </div>
 
 <div class="card-section" style="max-width:680px">
-  <form method="POST" id="product-form">
+  <form method="POST" id="product-form" enctype="multipart/form-data">
 
     <!-- Category row -->
     <div class="row g-3 mb-3">
@@ -98,6 +98,21 @@
                value="{{ product.low_stock_alert if product else 3 }}" min="0"
                title="Warn when stock falls to this number">
       </div>
+    </div>
+
+    <!-- Product Image -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Product Image</label>
+      {% if action == 'edit' and product and product.image_path %}
+      <div class="mb-2">
+        <img src="{{ url_for('static', filename=product.image_path) }}"
+             alt="{{ product.model }}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #e1bfb3">
+        <span class="text-muted small ms-2">Current image — upload a new one to replace it</span>
+      </div>
+      {% endif %}
+      <input type="file" name="image" class="form-control" accept=".png,.jpg,.jpeg,.webp"
+             style="max-width:360px">
+      <div class="form-text">Optional. PNG, JPG, JPEG, or WebP. Max 16MB.</div>
     </div>
 
     {% if action == 'edit' %}

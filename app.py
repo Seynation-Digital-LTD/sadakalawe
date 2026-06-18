@@ -1,5 +1,5 @@
 import os
-from datetime import timedelta
+from datetime import timedelta, datetime
 from flask import Flask, redirect, url_for, session
 from flask_login import LoginManager, current_user
 from database import close_db, init_db
@@ -15,6 +15,15 @@ def create_app():
     app.config['DATABASE'] = os.path.join(os.path.dirname(__file__), 'data', 'sadakalawe.db')
     app.config['BACKUP_DIR'] = os.path.join(os.path.dirname(__file__), 'backups')
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
+
+    # Mail settings from environment
+    import config as _cfg
+    app.config['MAIL_SERVER']   = _cfg.MAIL_SERVER
+    app.config['MAIL_PORT']     = _cfg.MAIL_PORT
+    app.config['MAIL_USERNAME'] = _cfg.MAIL_USERNAME
+    app.config['MAIL_PASSWORD'] = _cfg.MAIL_PASSWORD
+    app.config['MAIL_FROM']     = _cfg.MAIL_FROM
 
     os.makedirs(os.path.dirname(app.config['DATABASE']), exist_ok=True)
     os.makedirs(app.config['BACKUP_DIR'], exist_ok=True)
@@ -64,6 +73,7 @@ def create_app():
     from routes.expenses import bp as expenses_bp
     from routes.financing import bp as financing_bp
     from routes.tradeins import bp as tradeins_bp
+    from routes.import_data import bp as import_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(customers_bp)
@@ -76,6 +86,20 @@ def create_app():
     app.register_blueprint(expenses_bp)
     app.register_blueprint(financing_bp)
     app.register_blueprint(tradeins_bp)
+    app.register_blueprint(import_bp)
+
+    @app.template_filter('dt')
+    def format_dt(value):
+        if not value:
+            return ''
+        s = str(value).strip()
+        try:
+            d = datetime.fromisoformat(s[:19])
+            if len(s) <= 10:
+                return d.strftime('%d %b %Y')
+            return d.strftime('%d %b %Y, %H:%M')
+        except Exception:
+            return s[:16]
 
     @app.route('/')
     def index():

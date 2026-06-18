@@ -58,7 +58,7 @@
         {% set bal = d.total - d.amount_paid %}
         <tr>
           <td><a href="{{ url_for('documents.view', doc_id=d.id) }}" class="doc-link">{{ d.doc_number }}</a></td>
-          <td>{{ d.created_at[:10] }}</td>
+          <td>{{ d.created_at | dt }}</td>
           <td><span class="badge-branch">{{ d.branch_name[:10] }}</span></td>
           <td class="text-end">TZS {{ '{:,.0f}'.format(d.total) }}</td>
           <td class="text-end text-success">TZS {{ '{:,.0f}'.format(d.amount_paid) }}</td>

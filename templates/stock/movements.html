@@ -56,7 +56,7 @@
         {% for m in moves %}
         {% set imeis = imei_map.get(m.id, []) %}
         <tr>
-          <td class="text-muted" style="white-space:nowrap">{{ m.created_at[:16] }}</td>
+          <td class="text-muted" style="white-space:nowrap">{{ m.created_at | dt }}</td>
           <td class="fw-600">{{ m.brand_category }} {{ m.model }}</td>
           <td><span class="badge-branch">{{ m.branch_name[:10] }}</span></td>
           <td>

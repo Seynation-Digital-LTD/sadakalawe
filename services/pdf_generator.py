@@ -12,6 +12,7 @@ Layout (top → bottom):
   Orange footer
 """
 import os
+import io as _io
 from io import BytesIO
 from datetime import datetime
 from typing import Optional
@@ -19,6 +20,22 @@ from typing import Optional
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor
+
+try:
+    import qrcode as _qrcode
+    from reportlab.lib.utils import ImageReader as _IR
+
+    def _make_qr(data):
+        qr = _qrcode.QRCode(version=1, box_size=3, border=2)
+        qr.add_data(data)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = _io.BytesIO()
+        img.save(buf, format='PNG')
+        buf.seek(0)
+        return _IR(buf)
+except ImportError:
+    _make_qr = None
 
 # ── Stitch design-system colours ────────────────────────────────────────────
 C_ORANGE     = HexColor('#F26522')   # primary-container  (orange brand)
@@ -77,7 +94,13 @@ def generate_pdf(document, customer, items, branch, created_by_name):
         y = _bank_and_totals(c, y, document)
         _terms_section(c, y)
 
-    _footer(c, branch)
+    qr_data = (
+        f"DOC: {document['doc_number']}\n"
+        f"AMT: TZS {float(document.get('total', 0)):,.0f}\n"
+        f"DATE: {str(document.get('created_at', ''))[:10]}\n"
+        f"TIN: 164-334-864"
+    )
+    _footer(c, branch, qr_data=qr_data)
     c.save()
     buf.seek(0)
     return buf
@@ -748,9 +771,20 @@ def _signature_and_notes(c, y: float, document: dict):
         c.drawString(ML + 46, y, _clip(str(document['notes']), 80))
 
 
-def _footer(c, branch: dict):
-    """Full-width orange footer — company name left, contact right."""
+def _footer(c, branch: dict, qr_data: str = None):
+    """Full-width orange footer — company name left, contact right, optional QR top-right."""
     FH = 54
+    QR_SIZE = 54
+
+    # QR code just above the footer bar (right-aligned)
+    if qr_data and _make_qr is not None:
+        try:
+            qr_img = _make_qr(qr_data)
+            c.drawImage(qr_img, MR - QR_SIZE, FH, width=QR_SIZE, height=QR_SIZE,
+                        preserveAspectRatio=True)
+        except Exception:
+            pass
+
     c.setFillColor(C_ORANGE)
     c.rect(0, 0, W, FH, fill=1, stroke=0)
 
@@ -765,8 +799,9 @@ def _footer(c, branch: dict):
     # Right: phone / website / TIN
     c.setFont('Helvetica', 8)
     c.setFillColor(C_WHITE)
-    c.drawRightString(MR, FH - 16, '+255 768 596 006  |  info@sadakalawe.com')
-    c.drawRightString(MR, FH - 30, 'www.sadakalawe.com  |  TIN: 164-334-864')
+    right_text_x = MR - QR_SIZE - 8 if (qr_data and _make_qr is not None) else MR
+    c.drawRightString(right_text_x, FH - 16, '+255 768 596 006  |  info@sadakalawe.com')
+    c.drawRightString(right_text_x, FH - 30, 'www.sadakalawe.com  |  TIN: 164-334-864')
 
 
 # ═══════════════════════════════════════════════════════════════════════════

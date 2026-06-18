@@ -84,7 +84,7 @@
     <tbody>
       {% for e in expenses %}
       <tr>
-        <td class="text-muted small">{{ e.expense_date }}</td>
+        <td class="text-muted small">{{ e.expense_date | dt }}</td>
         <td><span class="badge bg-secondary-subtle text-secondary">{{ e.category }}</span></td>
         <td class="fw-medium">{{ e.description }}</td>
         {% if current_user.is_admin %}<td class="text-muted small">{{ e.branch_name }}</td>{% endif %}
