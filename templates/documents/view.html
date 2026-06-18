@@ -36,7 +36,7 @@
       <i class="bi bi-truck"></i> Create Delivery Note
     </button>
     {% endif %}
-    <a href="{{ wa_url }}" target="_blank" class="btn btn-success">
+    <a href="{{ url_for('documents.whatsapp_share', doc_id=doc.id) }}" class="btn btn-success">
       <i class="bi bi-whatsapp"></i> WhatsApp
     </a>
     {% if doc.doc_type == 'invoice' and current_user.can('create_documents') %}

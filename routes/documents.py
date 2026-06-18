@@ -1,4 +1,5 @@
 import re
+import secrets
 import zipfile
 from urllib.parse import quote as urlquote
 from flask import (Blueprint, render_template, request, redirect, url_for,
@@ -473,6 +474,67 @@ def delete(doc_id):
         execute_db("DELETE FROM documents WHERE id=?", (doc_id,))
         flash(f'Document {doc["doc_number"]} deleted.', 'success')
     return redirect(url_for('documents.list'))
+
+
+@bp.route('/public/<token>')
+def public_pdf(token):
+    """Serve a PDF publicly using a share token — no login required."""
+    doc = query_db("SELECT * FROM documents WHERE share_token=?", (token,), one=True)
+    if not doc:
+        abort(404)
+    full_doc = _fetch_doc_full(doc['id'])
+    customer = (query_db("SELECT * FROM customers WHERE id=?",
+                         (full_doc['customer_id'],), one=True)
+                if full_doc['customer_id']
+                else ({'name': full_doc['walkin_name']} if full_doc['walkin_name'] else None))
+    items  = query_db(
+        "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc['id'],))
+    branch = {'name': full_doc['branch_name'], 'address': full_doc['branch_address'],
+              'short_code': full_doc['short_code']}
+    pdf_buf = generate_pdf(dict(full_doc),
+                           dict(customer) if customer else None,
+                           [dict(i) for i in items],
+                           branch, full_doc['staff_name'])
+    return send_file(pdf_buf, mimetype='application/pdf',
+                     as_attachment=False,
+                     download_name=f"{full_doc['doc_number']}.pdf")
+
+
+@bp.route('/<int:doc_id>/whatsapp')
+@login_required
+def whatsapp_share(doc_id):
+    """Generate a public share token and open WhatsApp with the PDF link."""
+    doc = _fetch_doc_full(doc_id)
+    if not doc:
+        abort(404)
+
+    token = doc['share_token']
+    if not token:
+        token = secrets.token_urlsafe(32)
+        execute_db("UPDATE documents SET share_token=? WHERE id=?", (token, doc_id))
+
+    pdf_url = request.host_url.rstrip('/') + url_for('documents.public_pdf', token=token)
+    label   = DOC_TYPE_LABELS.get(doc['doc_type'], doc['doc_type'])
+    name    = doc['customer_name'] or 'Valued Customer'
+
+    lines = [
+        '*Sadakalawe Enterprises*',
+        f'Habari {name},',
+        '',
+        f'Hapa chini ni {label} yako:',
+        f'📄 *{doc["doc_number"]}* — TZS {float(doc["total"]):,.0f}',
+        '',
+        '🔗 Bonyeza hapa kupakua PDF yako:',
+        pdf_url,
+        '',
+        'Asante kwa kununua Sadakalawe! 🙏',
+        '+255 768 596 006  |  sadakalawe.com',
+    ]
+    msg   = '\n'.join(lines)
+    phone = _wa_phone(doc.get('customer_phone', '') or '')
+    wa    = (f'https://wa.me/{phone}?text={urlquote(msg)}'
+             if phone else f'https://wa.me/?text={urlquote(msg)}')
+    return redirect(wa)
 
 
 @bp.route('/<int:doc_id>/convert', methods=['POST'])

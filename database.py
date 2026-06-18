@@ -279,6 +279,7 @@ def _run_migrations(db):
         "UPDATE branches SET address='Kariakoo, Aggrey Street, Dar es Salaam' WHERE short_code='DAR' AND address NOT LIKE '%Aggrey%'",
         "UPDATE branches SET name='Arusha (Bondeni)' WHERE short_code='ARU' AND name NOT LIKE '%Bondeni%'",
         "UPDATE branches SET address='Bondeni Street, Opposite Mega Complex, Arusha' WHERE short_code='ARU' AND address NOT LIKE '%Bondeni%'",
+        "ALTER TABLE documents ADD COLUMN share_token TEXT",
     ]
     for sql in migrations:
         try:
