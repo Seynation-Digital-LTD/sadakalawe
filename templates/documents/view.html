@@ -215,6 +215,7 @@
   {% endif %}
 
   <!-- Line Items -->
+  {% set has_discount = items | selectattr('discount_pct') | list | length > 0 %}
   <table class="doc-items-table">
     <thead>
       <tr>
@@ -222,11 +223,13 @@
         <th>Description</th>
         <th style="width:60px">Qty</th>
         <th style="width:140px" class="text-end">Unit Price</th>
+        {% if has_discount %}<th style="width:70px" class="text-center">Disc%</th>{% endif %}
         <th style="width:140px" class="text-end">Amount</th>
       </tr>
     </thead>
     <tbody>
       {% for item in items %}
+      {% set disc = item.discount_pct | float %}
       <tr class="{{ 'row-alt' if loop.index0 % 2 == 0 else '' }}">
         <td class="text-center text-muted">{{ loop.index }}</td>
         <td>
@@ -238,7 +241,22 @@
           {% endif %}
         </td>
         <td class="text-center">{{ item.quantity | int if item.quantity == item.quantity | int else item.quantity }}</td>
-        <td class="text-end">TZS {{ "{:,.0f}".format(item.unit_price or 0) }}</td>
+        <td class="text-end">
+          {% if disc > 0 %}
+          <span style="text-decoration:line-through;color:#9ca3af;font-size:12px">TZS {{ "{:,.0f}".format(item.unit_price or 0) }}</span>
+          {% else %}
+          TZS {{ "{:,.0f}".format(item.unit_price or 0) }}
+          {% endif %}
+        </td>
+        {% if has_discount %}
+        <td class="text-center">
+          {% if disc > 0 %}
+          <span class="badge" style="background:var(--c-orange);color:#fff">{{ disc | int if disc == disc | int else disc }}%</span>
+          {% else %}
+          <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        {% endif %}
         <td class="text-end fw-semibold">TZS {{ "{:,.0f}".format(item.line_total or 0) }}</td>
       </tr>
       {% endfor %}

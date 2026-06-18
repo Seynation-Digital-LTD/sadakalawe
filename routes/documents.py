@@ -537,10 +537,12 @@ def convert(doc_id):
     for item in items:
         execute_db("""
             INSERT INTO document_items
-              (document_id, product_id, description, quantity, unit_price, line_total)
-            VALUES (?,?,?,?,?,?)
+              (document_id, product_id, description, quantity, unit_price, discount_pct, line_total)
+            VALUES (?,?,?,?,?,?,?)
         """, (new_id, item['product_id'], item['description'],
-               item['quantity'], item['unit_price'], item['line_total']))
+               item['quantity'], item['unit_price'],
+               item['discount_pct'] if 'discount_pct' in item.keys() else 0,
+               item['line_total']))
 
     # Deduct stock when converting proforma → invoice
     if target_type == 'invoice':
