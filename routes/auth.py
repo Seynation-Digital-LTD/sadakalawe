@@ -64,7 +64,8 @@ def login():
             # Single-session: invalidate any previous session by rotating the token
             token = secrets.token_hex(32)
             execute_db("UPDATE users SET session_token=? WHERE id=?", (token, user.id))
-            login_user(user)
+            session.permanent = True  # keep cookie alive for 30 days (set in app config)
+            login_user(user, remember=True)
             session['session_token'] = token
             if user.must_change_password:
                 flash('Please set a new password before continuing.', 'warning')

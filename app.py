@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from flask import Flask, redirect, url_for, session
 from flask_login import LoginManager, current_user
 from database import close_db, init_db
@@ -13,6 +14,7 @@ def create_app():
         'SECRET_KEY', 'sadakalawe-2026-change-in-production-xK9mP2qR')
     app.config['DATABASE'] = os.path.join(os.path.dirname(__file__), 'data', 'sadakalawe.db')
     app.config['BACKUP_DIR'] = os.path.join(os.path.dirname(__file__), 'backups')
+    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 
     os.makedirs(os.path.dirname(app.config['DATABASE']), exist_ok=True)
     os.makedirs(app.config['BACKUP_DIR'], exist_ok=True)
