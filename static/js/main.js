@@ -72,9 +72,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const prodPopup = document.getElementById('product-popup');
 
   addBtn && addBtn.addEventListener('click', () => addRow());
-  addRow(); // start with one row
 
-  function addRow(desc = '', qty = 1, price = '', specs = '', disc = 0) {
+  // Defer initial row: if PREFILL_DATA is set, populate from it; else add blank row
+  if (typeof PREFILL_DATA !== 'undefined' && PREFILL_DATA.length) {
+    PREFILL_DATA.forEach(item =>
+      addRow(item.description || '', item.qty || 1, item.price || '', item.specs || '', item.discount || 0, item.product_id || ''));
+    recalcOnce = true;
+  } else {
+    addRow();
+  }
+
+  function addRow(desc = '', qty = 1, price = '', specs = '', disc = 0, pid = '') {
     rowCount++;
     const tr = document.createElement('tr');
     tr.dataset.row = rowCount;
@@ -116,6 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const priceInp = tr.querySelector('.price-inp');
     const discInp  = tr.querySelector('.disc-inp');
     const pidInp   = tr.querySelector('.pid-inp');
+    if (pid) pidInp.value = pid;
 
     let prodTimer;
     descInp.addEventListener('input', () => {
@@ -231,4 +240,6 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
+
+  if (typeof recalcOnce !== 'undefined' && recalcOnce) recalc();
 });

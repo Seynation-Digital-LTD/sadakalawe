@@ -198,13 +198,12 @@ const PRODUCT_SEARCH_URL  = "{{ url_for('products.search') }}";
 const CUSTOMER_QUICK_ADD  = "{{ url_for('customers.quick_add') }}";
 const TODAY               = "{{ today }}";
 
-// Pre-existing items to load on page init
-const PREFILL_ITEMS = {{ items | map(attribute='description') | list | tojson }};
-const PREFILL_DATA  = [
+// PREFILL_DATA is read by main.js on DOMContentLoaded to pre-populate rows
+const PREFILL_DATA = [
   {% for item in items %}
   {
-    description: {{ item.description.split('\n')[0] | tojson }},
-    specs:       {{ (item.description.split('\n')[1:] | join(', ')) | tojson }},
+    description: {{ item.description | tojson }},
+    specs:       '',
     qty:         {{ item.quantity }},
     price:       {{ item.unit_price }},
     discount:    {{ item.discount_pct or 0 }},
@@ -251,23 +250,4 @@ const PREFILL_DATA  = [
 })();
 </script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
-<script>
-// Pre-populate items after main.js sets up the item-row machinery
-(function waitForAddRow() {
-  if (typeof addItemRow !== 'function') {
-    return setTimeout(waitForAddRow, 30);
-  }
-  PREFILL_DATA.forEach(item => {
-    addItemRow({
-      description: item.description,
-      specs:       item.specs,
-      qty:         item.qty,
-      price:       item.price,
-      discount:    item.discount,
-      product_id:  item.product_id,
-    });
-  });
-  recalcTotals();
-})();
-</script>
 {% endblock %}
