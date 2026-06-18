@@ -8,9 +8,16 @@
     <h2 class="page-title">Customers</h2>
     <p class="page-sub">{{ customers | length }} customer{{ 's' if customers | length != 1 else '' }} found</p>
   </div>
-  <a href="{{ url_for('customers.new') }}" class="btn btn-primary">
-    <i class="bi bi-plus-lg"></i> New Customer
-  </a>
+  <div class="d-flex gap-2">
+    {% if current_user.can('manage_customers') %}
+    <a href="{{ url_for('customers.duplicates') }}" class="btn btn-outline-warning">
+      <i class="bi bi-people-fill"></i> Find Duplicates
+    </a>
+    {% endif %}
+    <a href="{{ url_for('customers.new') }}" class="btn btn-primary">
+      <i class="bi bi-plus-lg"></i> New Customer
+    </a>
+  </div>
 </div>
 
 <div class="card-section mb-4">

@@ -1,0 +1,184 @@
+{% extends 'base.html' %}
+{% set active = 'customers' %}
+{% block title %}Duplicate Customers{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Duplicate Customers</h2>
+    <p class="page-sub">Review and merge records that appear more than once</p>
+  </div>
+  <a href="{{ url_for('customers.list') }}" class="btn btn-ghost">
+    <i class="bi bi-arrow-left"></i> Back to Customers
+  </a>
+</div>
+
+{% set total_groups = (phone_groups | length) + (name_groups | length) %}
+{% if total_groups == 0 %}
+<div class="card-section text-center py-5">
+  <i class="bi bi-check-circle-fill text-success" style="font-size:2.5rem"></i>
+  <p class="mt-3 fw-semibold">No duplicates found!</p>
+  <p class="text-muted small">All customers have unique names and phone numbers.</p>
+</div>
+{% endif %}
+
+{% macro merge_group(members, label) %}
+<div class="dup-card mb-4">
+  <div class="dup-card__header">
+    <i class="bi bi-people-fill me-2" style="color:var(--c-orange)"></i>
+    {{ members | length }} records — {{ label }}
+  </div>
+  <form method="POST" action="{{ url_for('customers.merge') }}"
+        onsubmit="return confirmMerge(this)">
+    <div class="dup-card__body">
+      {% for m in members %}
+      <div class="dup-row {% if loop.first %}dup-row--suggested{% endif %}">
+        <label class="dup-master-pick">
+          <input type="radio" name="master_id" value="{{ m.id }}"
+                 {% if loop.first %}checked{% endif %} required>
+          <span class="dup-master-label">Keep as master</span>
+        </label>
+        <div class="dup-info">
+          <div class="fw-semibold">{{ m.name }}</div>
+          <div class="text-muted small">
+            {% if m.phone %}<span class="me-3"><i class="bi bi-telephone"></i> {{ m.phone }}</span>{% endif %}
+            {% if m.email %}<span class="me-3"><i class="bi bi-envelope"></i> {{ m.email }}</span>{% endif %}
+            {% if m.tin %}<span class="me-3"><i class="bi bi-hash"></i> TIN: {{ m.tin }}</span>{% endif %}
+            {% if m.address %}<span><i class="bi bi-geo-alt"></i> {{ m.address }}</span>{% endif %}
+          </div>
+          {% if m.notes %}
+          <div class="text-muted" style="font-size:12px;margin-top:2px">
+            <i class="bi bi-sticky"></i> {{ m.notes[:80] }}{% if m.notes|length > 80 %}…{% endif %}
+          </div>
+          {% endif %}
+        </div>
+        <div class="dup-meta text-muted small text-end">
+          <div><i class="bi bi-receipt"></i> {{ m.doc_count }} doc{{ 's' if m.doc_count != 1 }}</div>
+          <div>ID #{{ m.id }}</div>
+          <div>{{ m.created_at | dt }}</div>
+        </div>
+        <label class="dup-del-pick">
+          <input type="checkbox" name="dup_ids[]" value="{{ m.id }}">
+          <span class="dup-del-label">Merge into master</span>
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="dup-card__footer">
+      <span class="text-muted small">
+        <i class="bi bi-info-circle"></i>
+        Tick "Merge into master" on the duplicates, leave "Keep as master" on the one to keep.
+        All documents, financing plans, and trade-ins are re-linked automatically.
+      </span>
+      <button type="submit" class="btn btn-warning btn-sm">
+        <i class="bi bi-intersect"></i> Merge Selected
+      </button>
+    </div>
+  </form>
+</div>
+{% endmacro %}
+
+{% if phone_groups %}
+<h5 class="section-heading mt-3">
+  <i class="bi bi-telephone-fill me-2" style="color:var(--c-orange)"></i>
+  Same Phone Number ({{ phone_groups | length }} group{{ 's' if phone_groups | length != 1 }})
+</h5>
+{% for g in phone_groups %}
+  {{ merge_group(g.members, 'phone: ' ~ g.members[0].phone) }}
+{% endfor %}
+{% endif %}
+
+{% if name_groups %}
+<h5 class="section-heading mt-3">
+  <i class="bi bi-person-fill me-2" style="color:var(--c-orange)"></i>
+  Same Name ({{ name_groups | length }} group{{ 's' if name_groups | length != 1 }})
+</h5>
+{% for g in name_groups %}
+  {{ merge_group(g.members, 'name: ' ~ g.members[0].name) }}
+{% endfor %}
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+.section-heading {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--c-text-muted);
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--c-border);
+}
+.dup-card {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--c-card);
+  box-shadow: var(--shadow-sm);
+}
+.dup-card__header {
+  background: var(--c-surface-low);
+  padding: 10px 16px;
+  font-weight: 600;
+  font-size: 13.5px;
+  border-bottom: 1px solid var(--c-border);
+}
+.dup-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 130px 130px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--c-surface-high);
+}
+.dup-row--suggested { background: var(--c-orange-lt); }
+.dup-row:last-child { border-bottom: none; }
+
+.dup-master-pick, .dup-del-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.dup-master-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-orange-dk);
+  text-align: center;
+}
+.dup-del-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  text-align: center;
+}
+.dup-card__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--c-surface-low);
+  border-top: 1px solid var(--c-border);
+  gap: 12px;
+}
+</style>
+<script>
+function confirmMerge(form) {
+  const dups = [...form.querySelectorAll('input[name="dup_ids[]"]:checked')];
+  if (!dups.length) {
+    alert('Tick at least one record to merge into the master.');
+    return false;
+  }
+  const masterId = form.querySelector('input[name="master_id"]:checked')?.value;
+  if (dups.some(d => d.value === masterId)) {
+    alert('A record cannot be both the master and a duplicate. Uncheck the master from "Merge into master".');
+    return false;
+  }
+  return confirm(`Merge ${dups.length} record(s) into the master? This cannot be undone.`);
+}
+</script>
+{% endblock %}

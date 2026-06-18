@@ -203,6 +203,100 @@ def delete(customer_id):
     return redirect(url_for('customers.list'))
 
 
+@bp.route('/duplicates')
+@login_required
+@perm_required('manage_customers')
+def duplicates():
+    """Find customers that share the same normalised phone or exact name."""
+    # Group by normalised phone (strip spaces/dashes/+)
+    by_phone = query_db("""
+        SELECT REPLACE(REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'+',''),'(','') AS norm_phone,
+               COUNT(*) AS cnt
+        FROM customers
+        WHERE phone IS NOT NULL AND phone != ''
+        GROUP BY norm_phone
+        HAVING cnt > 1
+    """)
+    phone_groups = []
+    for row in by_phone:
+        norm = row['norm_phone']
+        members = query_db("""
+            SELECT c.*, COUNT(d.id) AS doc_count
+            FROM customers c
+            LEFT JOIN documents d ON d.customer_id = c.id
+            WHERE REPLACE(REPLACE(REPLACE(REPLACE(c.phone,' ',''),'-',''),'+',''),'(','') = ?
+            GROUP BY c.id ORDER BY c.id
+        """, (norm,))
+        phone_groups.append({'key': norm, 'members': [dict(m) for m in members]})
+
+    # Group by exact name (case-insensitive)
+    by_name = query_db("""
+        SELECT LOWER(name) AS norm_name, COUNT(*) AS cnt
+        FROM customers
+        GROUP BY norm_name
+        HAVING cnt > 1
+    """)
+    name_groups = []
+    for row in by_name:
+        members = query_db("""
+            SELECT c.*, COUNT(d.id) AS doc_count
+            FROM customers c
+            LEFT JOIN documents d ON d.customer_id = c.id
+            WHERE LOWER(c.name) = ?
+            GROUP BY c.id ORDER BY c.id
+        """, (row['norm_name'],))
+        name_groups.append({'key': row['norm_name'], 'members': [dict(m) for m in members]})
+
+    return render_template('customers/duplicates.html',
+                           phone_groups=phone_groups, name_groups=name_groups)
+
+
+@bp.route('/merge', methods=['POST'])
+@login_required
+@perm_required('manage_customers')
+def merge():
+    """Merge one or more duplicate customers into a master record."""
+    master_id  = request.form.get('master_id', type=int)
+    dup_ids    = request.form.getlist('dup_ids[]', type=int)
+
+    if not master_id or not dup_ids:
+        flash('Select a master and at least one duplicate to merge.', 'danger')
+        return redirect(url_for('customers.duplicates'))
+
+    master = query_db("SELECT * FROM customers WHERE id=?", (master_id,), one=True)
+    if not master:
+        flash('Master customer not found.', 'danger')
+        return redirect(url_for('customers.duplicates'))
+
+    # Fill in missing fields on master from duplicates
+    for dup_id in dup_ids:
+        dup = query_db("SELECT * FROM customers WHERE id=?", (dup_id,), one=True)
+        if not dup:
+            continue
+        updates = {}
+        if not master['email']   and dup['email']:   updates['email']   = dup['email']
+        if not master['tin']     and dup['tin']:     updates['tin']     = dup['tin']
+        if not master['address'] and dup['address']: updates['address'] = dup['address']
+        if dup['notes']:
+            merged_notes = ((master['notes'] or '') + '\n' + dup['notes']).strip()
+            updates['notes'] = merged_notes
+        if updates:
+            set_clause = ', '.join(f'{k}=?' for k in updates)
+            execute_db(f"UPDATE customers SET {set_clause} WHERE id=?",
+                       list(updates.values()) + [master_id])
+            master = query_db("SELECT * FROM customers WHERE id=?", (master_id,), one=True)
+
+        # Re-point all records to master
+        execute_db("UPDATE documents       SET customer_id=? WHERE customer_id=?", (master_id, dup_id))
+        execute_db("UPDATE financing_plans SET customer_id=? WHERE customer_id=?", (master_id, dup_id))
+        execute_db("UPDATE tradeins        SET customer_id=? WHERE customer_id=?", (master_id, dup_id))
+        execute_db("DELETE FROM customers WHERE id=?", (dup_id,))
+
+    merged_count = len(dup_ids)
+    flash(f'Merged {merged_count} duplicate(s) into "{master["name"]}".', 'success')
+    return redirect(url_for('customers.view', customer_id=master_id))
+
+
 @bp.route('/search')
 @login_required
 def search():
