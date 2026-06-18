@@ -72,6 +72,10 @@
          class="nav-link {% if active == 'stock' %}active{% endif %}">
         <i class="bi bi-boxes"></i> Stock Levels
       </a>
+      <a href="{{ url_for('stock.transfer') }}"
+         class="nav-link {% if active == 'stock_transfer' %}active{% endif %}">
+        <i class="bi bi-arrow-left-right"></i> Transfer Stock
+      </a>
       <a href="{{ url_for('products.list') }}"
          class="nav-link {% if active == 'products' %}active{% endif %}">
         <i class="bi bi-box-seam"></i> Product Catalog
@@ -89,6 +93,10 @@
       <a href="{{ url_for('reports.stock_report') }}"
          class="nav-link {% if active == 'rep_stock' %}active{% endif %}">
         <i class="bi bi-clipboard-data"></i> Stock Report
+      </a>
+      <a href="{{ url_for('reports.pnl_report') }}"
+         class="nav-link {% if active == 'rep_pnl' %}active{% endif %}">
+        <i class="bi bi-graph-up-arrow"></i> P&amp;L
       </a>
 
       {% if current_user.is_admin %}

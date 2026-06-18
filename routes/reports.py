@@ -388,3 +388,134 @@ def stock_report():
                            branch_filter=branch_id,
                            total_value=total_value, total_items=total_items,
                            slow_days=slow_days)
+
+
+@bp.route('/reports/pnl')
+@login_required
+@perm_required('view_reports')
+def pnl_report():
+    branch_id = (current_user.branch_id if not current_user.is_admin
+                 else request.args.get('branch_id', ''))
+    date_from = request.args.get('date_from', date.today().replace(day=1).isoformat())
+    date_to   = request.args.get('date_to',   date.today().isoformat())
+
+    b_filter = " AND branch_id=?" if branch_id else ""
+    b_args   = [branch_id] if branch_id else []
+
+    # Revenue: all invoice totals in period
+    rev = query_db(
+        f"SELECT COALESCE(SUM(total),0) AS v FROM documents "
+        f"WHERE doc_type='invoice' AND DATE(created_at) BETWEEN ? AND ? {b_filter}",
+        [date_from, date_to] + b_args, one=True)
+    revenue = float(rev['v'])
+
+    # Revenue breakdown: paid vs credit
+    rev_paid = query_db(
+        f"SELECT COALESCE(SUM(amount_paid),0) AS v FROM documents "
+        f"WHERE doc_type='invoice' AND DATE(created_at) BETWEEN ? AND ? {b_filter}",
+        [date_from, date_to] + b_args, one=True)
+    collected = float(rev_paid['v'])
+    outstanding = revenue - collected
+
+    # Expenses
+    exp = query_db(
+        f"SELECT COALESCE(SUM(amount),0) AS v FROM expenses "
+        f"WHERE DATE(expense_date) BETWEEN ? AND ? {b_filter}",
+        [date_from, date_to] + b_args, one=True)
+    expenses = float(exp['v'])
+
+    # Expenses breakdown by category
+    exp_cats = query_db(
+        f"SELECT category, COALESCE(SUM(amount),0) AS total FROM expenses "
+        f"WHERE DATE(expense_date) BETWEEN ? AND ? {b_filter} "
+        f"GROUP BY category ORDER BY total DESC",
+        [date_from, date_to] + b_args)
+
+    # Financing: collected installments in period
+    fin_collected = query_db(
+        "SELECT COALESCE(SUM(fi.amount_paid),0) AS v "
+        "FROM financing_installments fi "
+        "JOIN financing_plans fp ON fi.plan_id=fp.id "
+        "WHERE fi.status='paid' AND DATE(fi.paid_date) BETWEEN ? AND ?",
+        [date_from, date_to], one=True)
+    financing_in = float(fin_collected['v'])
+
+    # Trade-ins: credit given out in period
+    ti_credit = query_db(
+        "SELECT COALESCE(SUM(credit_offered),0) AS v FROM tradeins "
+        "WHERE status='accepted' AND DATE(created_at) BETWEEN ? AND ?",
+        [date_from, date_to], one=True)
+    tradein_credit = float(ti_credit['v'])
+
+    # Top revenue categories
+    cat_sql = (
+        f"SELECT di.description, SUM(di.line_total) AS rev, SUM(di.quantity) AS qty "
+        f"FROM document_items di JOIN documents d ON di.document_id=d.id "
+        f"WHERE d.doc_type='invoice' AND DATE(d.created_at) BETWEEN ? AND ? {b_filter} "
+        f"GROUP BY di.description ORDER BY rev DESC LIMIT 8"
+    )
+    top_items = query_db(cat_sql, [date_from, date_to] + b_args)
+
+    # Credit sales ratio
+    cr_count = query_db(
+        f"SELECT COUNT(*) AS v FROM documents WHERE doc_type='invoice' "
+        f"AND payment_status IN ('credit','partial') "
+        f"AND DATE(created_at) BETWEEN ? AND ? {b_filter}",
+        [date_from, date_to] + b_args, one=True)
+    total_inv = query_db(
+        f"SELECT COUNT(*) AS v FROM documents WHERE doc_type='invoice' "
+        f"AND DATE(created_at) BETWEEN ? AND ? {b_filter}",
+        [date_from, date_to] + b_args, one=True)
+    credit_ratio = (cr_count['v'] / total_inv['v'] * 100) if total_inv['v'] else 0
+
+    net = collected - expenses  # cash-in minus cash-out
+
+    # Build suggestions
+    suggestions = []
+    if outstanding > 0:
+        suggestions.append({
+            'icon': 'bi-clock-history', 'color': 'warning',
+            'text': f'TZS {outstanding:,.0f} in invoices is still unpaid — follow up with customers on outstanding balances.'
+        })
+    if credit_ratio > 30:
+        suggestions.append({
+            'icon': 'bi-exclamation-triangle', 'color': 'warning',
+            'text': f'{credit_ratio:.0f}% of invoices this period were on credit. Consider tightening payment terms or requiring deposits.'
+        })
+    if expenses > collected * 0.5 and collected > 0:
+        suggestions.append({
+            'icon': 'bi-graph-down', 'color': 'danger',
+            'text': f'Expenses ({expenses:,.0f}) are over 50% of cash collected ({collected:,.0f}). Review the biggest expense categories.'
+        })
+    if top_items:
+        top = top_items[0]
+        suggestions.append({
+            'icon': 'bi-trophy', 'color': 'success',
+            'text': f'Best performer: "{top["description"]}" generated TZS {float(top["rev"]):,.0f} this period. Keep it well-stocked.'
+        })
+    if tradein_credit > 0:
+        suggestions.append({
+            'icon': 'bi-arrow-left-right', 'color': 'info',
+            'text': f'TZS {tradein_credit:,.0f} was given as trade-in credit. Ensure traded devices are valued correctly to protect margins.'
+        })
+    if net < 0:
+        suggestions.append({
+            'icon': 'bi-exclamation-circle-fill', 'color': 'danger',
+            'text': 'Cash position is negative this period — money out exceeded money in. Urgently review expenses and unpaid invoices.'
+        })
+    elif net > 0 and suggestions == []:
+        suggestions.append({
+            'icon': 'bi-check-circle-fill', 'color': 'success',
+            'text': 'Strong period — cash collected exceeds expenses. Consider reinvesting surplus into fast-moving stock.'
+        })
+
+    branches = query_db("SELECT * FROM branches ORDER BY name")
+    return render_template('reports/pnl.html',
+                           revenue=revenue, collected=collected, outstanding=outstanding,
+                           expenses=expenses, exp_cats=exp_cats,
+                           financing_in=financing_in, tradein_credit=tradein_credit,
+                           net=net, top_items=top_items,
+                           credit_ratio=credit_ratio,
+                           suggestions=suggestions,
+                           branches=branches, branch_filter=branch_id,
+                           date_from=date_from, date_to=date_to)

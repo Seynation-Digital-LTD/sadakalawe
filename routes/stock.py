@@ -161,6 +161,89 @@ def adjust():
                            products=products, default_branch_id=default_branch_id)
 
 
+@bp.route('/transfer', methods=['GET', 'POST'])
+@login_required
+def transfer():
+    """Transfer stock from one branch to another."""
+    branches = query_db("SELECT * FROM branches ORDER BY name")
+    products = query_db(
+        "SELECT id, brand_category, model FROM products WHERE is_active=1 ORDER BY brand_category, model")
+
+    if request.method == 'POST':
+        try:
+            product_id  = int(request.form['product_id'])
+            from_branch = int(request.form['from_branch_id'])
+            to_branch   = int(request.form['to_branch_id'])
+            quantity    = float(request.form['quantity'])
+        except (ValueError, KeyError) as e:
+            flash(f'Fill in all fields correctly. ({e})', 'danger')
+            return render_template('stock/transfer.html', branches=branches, products=products)
+
+        if from_branch == to_branch:
+            flash('Source and destination branches must be different.', 'danger')
+            return render_template('stock/transfer.html', branches=branches, products=products)
+        if quantity <= 0:
+            flash('Quantity must be greater than 0.', 'danger')
+            return render_template('stock/transfer.html', branches=branches, products=products)
+
+        # Check available stock at source
+        available = query_db(
+            "SELECT COALESCE(quantity,0) AS qty FROM product_stock WHERE product_id=? AND branch_id=?",
+            (product_id, from_branch), one=True)
+        avail_qty = available['qty'] if available else 0
+        if quantity > avail_qty:
+            flash(f'Not enough stock — only {avail_qty:g} units available at source branch.', 'danger')
+            return render_template('stock/transfer.html', branches=branches, products=products)
+
+        notes = request.form.get('notes', '').strip() or None
+        db = get_db()
+
+        # Log transfer_out at source
+        db.execute("""
+            INSERT INTO stock_movements
+              (product_id, branch_id, movement_type, quantity, notes, recorded_by)
+            VALUES (?,?,'transfer_out',?,?,?)
+        """, (product_id, from_branch, -quantity, notes, current_user.id))
+
+        # Log transfer_in at destination
+        db.execute("""
+            INSERT INTO stock_movements
+              (product_id, branch_id, movement_type, quantity, notes, recorded_by)
+            VALUES (?,?,'transfer_in',?,?,?)
+        """, (product_id, to_branch, quantity, notes, current_user.id))
+        db.commit()
+
+        # Update product_stock at both branches
+        execute_db("""
+            INSERT INTO product_stock (product_id, branch_id, quantity) VALUES (?,?,?)
+            ON CONFLICT(product_id, branch_id)
+            DO UPDATE SET quantity = MAX(0, quantity - excluded.quantity)
+        """, (product_id, from_branch, quantity))
+
+        execute_db("""
+            INSERT INTO product_stock (product_id, branch_id, quantity) VALUES (?,?,?)
+            ON CONFLICT(product_id, branch_id)
+            DO UPDATE SET quantity = quantity + excluded.quantity
+        """, (product_id, to_branch, quantity))
+
+        # Sync global stock_count
+        execute_db("""
+            UPDATE products SET stock_count = (
+                SELECT COALESCE(SUM(quantity),0) FROM product_stock WHERE product_id=?
+            ) WHERE id=?
+        """, (product_id, product_id))
+
+        product = query_db("SELECT brand_category, model FROM products WHERE id=?",
+                           (product_id,), one=True)
+        from_b  = query_db("SELECT name FROM branches WHERE id=?", (from_branch,), one=True)
+        to_b    = query_db("SELECT name FROM branches WHERE id=?", (to_branch,), one=True)
+        flash(f'Transferred {quantity:g}× {product["brand_category"]} {product["model"]} '
+              f'from {from_b["name"]} → {to_b["name"]}.', 'success')
+        return redirect(url_for('stock.index'))
+
+    return render_template('stock/transfer.html', branches=branches, products=products)
+
+
 @bp.route('/movements')
 @login_required
 def movements():

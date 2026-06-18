@@ -74,7 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
   addBtn && addBtn.addEventListener('click', () => addRow());
   addRow(); // start with one row
 
-  function addRow(desc = '', qty = 1, price = '', specs = '') {
+  function addRow(desc = '', qty = 1, price = '', specs = '', disc = 0) {
     rowCount++;
     const tr = document.createElement('tr');
     tr.dataset.row = rowCount;
@@ -89,11 +89,19 @@ document.addEventListener('DOMContentLoaded', () => {
       </td>
       <td>
         <input type="number" name="item_qty[]" class="qty-inp"
-               value="${qty}" min="0" step="any" style="text-align:right">
+               value="${qty}" step="any" style="text-align:right">
       </td>
       <td>
         <input type="number" name="item_price[]" class="price-inp"
                value="${price}" min="0" step="100" placeholder="0" style="text-align:right">
+      </td>
+      <td>
+        <div style="display:flex;align-items:center;gap:2px">
+          <input type="number" name="item_discount[]" class="disc-inp"
+                 value="${disc}" min="0" max="100" step="1" placeholder="0"
+                 style="text-align:right;width:52px" title="Discount %">
+          <span style="font-size:11px;color:#9ca3af">%</span>
+        </div>
       </td>
       <td class="line-total" data-val="0">-</td>
       <td>
@@ -106,6 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const descInp  = tr.querySelector('.desc-inp');
     const qtyInp   = tr.querySelector('.qty-inp');
     const priceInp = tr.querySelector('.price-inp');
+    const discInp  = tr.querySelector('.disc-inp');
     const pidInp   = tr.querySelector('.pid-inp');
 
     let prodTimer;
@@ -118,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     descInp.addEventListener('blur', () => setTimeout(hideProd, 200));
 
-    [qtyInp, priceInp].forEach(el =>
+    [qtyInp, priceInp, discInp].forEach(el =>
       el.addEventListener('input', () => { updateRow(tr); recalc(); }));
 
     tr.querySelector('.btn-row-del').addEventListener('click', () => {
@@ -132,9 +141,16 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateRow(tr) {
     const qty   = parseFloat(tr.querySelector('.qty-inp').value) || 0;
     const price = parseFloat(tr.querySelector('.price-inp').value) || 0;
-    const total = qty * price;
+    const disc  = Math.min(100, Math.max(0, parseFloat(tr.querySelector('.disc-inp')?.value) || 0));
+    const total = qty * price * (1 - disc / 100);
     const cell  = tr.querySelector('.line-total');
-    cell.textContent = total ? 'TZS ' + fmt(total) : '-';
+    if (total) {
+      cell.innerHTML = disc > 0
+        ? `<span style="text-decoration:line-through;color:#9ca3af;font-size:11px">TZS ${fmt(qty*price)}</span><br><b>TZS ${fmt(total)}</b>`
+        : `TZS ${fmt(total)}`;
+    } else {
+      cell.textContent = '-';
+    }
     cell.dataset.val = total;
   }
 

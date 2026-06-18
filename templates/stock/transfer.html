@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+{% set active = 'stock' %}
+{% block title %}Transfer Stock{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Transfer Stock Between Branches</h2>
+    <p class="page-sub">Move units from one branch to the other</p>
+  </div>
+  <a href="{{ url_for('stock.index') }}" class="btn btn-ghost">
+    <i class="bi bi-arrow-left"></i> Stock Levels
+  </a>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="form-card">
+      <form method="POST" action="{{ url_for('stock.transfer') }}">
+
+        <div class="mb-3">
+          <label class="field-label">Product</label>
+          <select name="product_id" id="product_id" class="form-select" required>
+            <option value="">— Select Product —</option>
+            {% set current_cat = namespace(value='') %}
+            {% for p in products %}
+              {% if p.brand_category != current_cat.value %}
+                {% if not loop.first %}</optgroup>{% endif %}
+                <optgroup label="{{ p.brand_category }}">
+                {% set current_cat.value = p.brand_category %}
+              {% endif %}
+              <option value="{{ p.id }}">{{ p.model }}</option>
+            {% endfor %}
+            {% if products %}</optgroup>{% endif %}
+          </select>
+        </div>
+
+        <div class="row g-3 mb-3">
+          <div class="col-6">
+            <label class="field-label">From Branch</label>
+            <select name="from_branch_id" id="from_branch" class="form-select" required>
+              <option value="">— Source —</option>
+              {% for b in branches %}
+              <option value="{{ b.id }}">{{ b.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="field-label">To Branch</label>
+            <select name="to_branch_id" id="to_branch" class="form-select" required>
+              <option value="">— Destination —</option>
+              {% for b in branches %}
+              <option value="{{ b.id }}">{{ b.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div id="stock-check" class="alert py-2 mb-3" style="display:none"></div>
+
+        <div class="mb-3">
+          <label class="field-label">Quantity to Transfer</label>
+          <input type="number" name="quantity" id="quantity" class="form-control form-control-lg"
+                 placeholder="0" min="0.01" step="any" required>
+        </div>
+
+        <div class="mb-4">
+          <label class="field-label">Notes (optional)</label>
+          <textarea name="notes" class="form-control" rows="2"
+                    placeholder="Reason for transfer…"></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100 py-2" style="font-size:15px;font-weight:700">
+          <i class="bi bi-arrow-left-right"></i> Transfer Stock
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const API = "{{ url_for('stock.api_product_stock') }}";
+  const productSel  = document.getElementById('product_id');
+  const fromBranch  = document.getElementById('from_branch');
+  const stockCheck  = document.getElementById('stock-check');
+
+  async function checkStock() {
+    const pid = productSel.value;
+    const bid = fromBranch.value;
+    if (!pid || !bid) { stockCheck.style.display = 'none'; return; }
+    try {
+      const r    = await fetch(`${API}?product_id=${pid}&branch_id=${bid}`);
+      const data = await r.json();
+      const qty  = data.quantity ?? 0;
+      stockCheck.className = `alert py-2 mb-3 alert-${qty > 0 ? 'info' : 'warning'}`;
+      stockCheck.innerHTML = qty > 0
+        ? `<i class="bi bi-info-circle-fill me-1"></i> <strong>${qty}</strong> unit(s) currently at selected source branch.`
+        : `<i class="bi bi-exclamation-triangle-fill me-1"></i> <strong>0</strong> units at this branch — nothing to transfer.`;
+      stockCheck.style.display = '';
+    } catch (e) { stockCheck.style.display = 'none'; }
+  }
+
+  productSel.addEventListener('change', checkStock);
+  fromBranch.addEventListener('change', checkStock);
+})();
+</script>
+{% endblock %}

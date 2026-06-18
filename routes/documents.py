@@ -75,24 +75,28 @@ def _parse_items(form):
     quantities   = form.getlist('item_qty[]')
     unit_prices  = form.getlist('item_price[]')
     product_ids  = form.getlist('item_product_id[]')
+    discounts    = form.getlist('item_discount[]')
     items = []
     for i, desc in enumerate(descriptions):
         desc = desc.strip()
         if not desc:
             continue
         try:
-            qty   = float(quantities[i] or 1)
-            price = float(unit_prices[i] or 0)
+            qty      = float(quantities[i] or 1)
+            price    = float(unit_prices[i] or 0)
+            disc_pct = max(0, min(100, float(discounts[i] or 0) if i < len(discounts) else 0))
         except (IndexError, ValueError):
             continue
         specs = specs_list[i].strip() if i < len(specs_list) else ''
         full_desc = (desc + chr(10) + specs) if specs else desc
+        discounted_price = round(price * (1 - disc_pct / 100), 2)
         items.append({
-            'description': full_desc,
-            'quantity':    qty,
-            'unit_price':  price,
-            'line_total':  round(qty * price, 2),
-            'product_id':  (product_ids[i] if i < len(product_ids) else None) or None,
+            'description':  full_desc,
+            'quantity':     qty,
+            'unit_price':   price,
+            'discount_pct': disc_pct,
+            'line_total':   round(qty * discounted_price, 2),
+            'product_id':   (product_ids[i] if i < len(product_ids) else None) or None,
         })
     return items
 
@@ -273,10 +277,11 @@ def new():
             for item in items:
                 execute_db("""
                     INSERT INTO document_items
-                      (document_id, product_id, description, quantity, unit_price, line_total)
-                    VALUES (?,?,?,?,?,?)
+                      (document_id, product_id, description, quantity, unit_price, discount_pct, line_total)
+                    VALUES (?,?,?,?,?,?,?)
                 """, (doc_id, item['product_id'], item['description'],
-                      item['quantity'], item['unit_price'], item['line_total']))
+                      item['quantity'], item['unit_price'],
+                      item.get('discount_pct', 0), item['line_total']))
 
             created_ids.append(doc_id)
             if doc_type == 'invoice':
