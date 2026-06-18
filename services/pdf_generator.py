@@ -490,27 +490,37 @@ def _items_table(c, start_y: float, items: list, document: dict) -> float:
     HDR_H     = 30
     ROW_H     = 28
 
+    # Detect if any item carries a discount so we can add the DISC% column
+    has_discount = any(float(item.get('discount_pct', 0) or 0) > 0 for item in items)
+
     # Column definitions
     if doc_type == 'delivery_note':
         cols = [
-            ('ITEM DESCRIPTION', BODY - 80,  'left'),
-            ('QTY',              80,          'center'),
+            ('ITEM DESCRIPTION', BODY - 80, 'left'),
+            ('QTY',              80,         'center'),
+        ]
+    elif has_discount:
+        desc_w = BODY - 60 - 110 - 54 - 90
+        cols = [
+            ('ITEM DESCRIPTION', desc_w, 'left'),
+            ('QTY',              60,     'center'),
+            ('UNIT PRICE',       110,    'right'),
+            ('DISC%',            54,     'center'),
+            ('AMOUNT',           90,     'right'),
         ]
     else:
         desc_w = BODY - 64 - 120 - 110
         cols = [
-            ('ITEM DESCRIPTION', desc_w,  'left'),
-            ('QTY',              64,       'center'),
-            ('UNIT PRICE',       120,      'right'),
-            ('AMOUNT',           110,      'right'),
+            ('ITEM DESCRIPTION', desc_w, 'left'),
+            ('QTY',              64,     'center'),
+            ('UNIT PRICE',       120,    'right'),
+            ('AMOUNT',           110,    'right'),
         ]
 
     # ── Orange header row ────────────────────────────────────────────────
     c.setFillColor(C_ORANGE)
     c.rect(ML, y - HDR_H, BODY, HDR_H, fill=1, stroke=0)
 
-    c.setFont('Helvetica-Bold', 9)
-    c.setFillColor(C_WHITE)
     cx = ML
     for title, cw, align in cols:
         _cell_text(c, cx, y - HDR_H, cw, HDR_H, title, 'Helvetica-Bold', 9, C_WHITE, align, pad=10)
@@ -546,25 +556,57 @@ def _items_table(c, start_y: float, items: list, document: dict) -> float:
             c.drawString(ML + 18, text_y, _clip(sl, 52))
 
         # Numeric cells
-        qty   = float(item.get('quantity', 1) or 1)
-        price = float(item.get('unit_price', 0) or 0)
-        total = float(item.get('line_total', 0) or 0)
-        qty_s = str(int(qty)) if qty == int(qty) else f'{qty:.2f}'
+        qty      = float(item.get('quantity', 1) or 1)
+        price    = float(item.get('unit_price', 0) or 0)
+        total    = float(item.get('line_total', 0) or 0)
+        disc_pct = float(item.get('discount_pct', 0) or 0)
+        qty_s    = str(int(qty)) if qty == int(qty) else f'{qty:.2f}'
 
-        cx = ML + cols[0][1]
+        col_idx = 0
+        cx = ML + cols[col_idx][1]; col_idx += 1
+
+        # QTY
         c.setFont('Helvetica', 9.5)
         c.setFillColor(C_TEXT)
-        c.drawCentredString(cx + cols[1][1] / 2, y - 16, qty_s)
-        cx += cols[1][1]
+        c.drawCentredString(cx + cols[col_idx][1] / 2, y - 16, qty_s)
+        cx += cols[col_idx][1]; col_idx += 1
 
         if doc_type != 'delivery_note':
-            c.setFont('Helvetica', 9)
-            c.setFillColor(C_SECONDARY)
-            c.drawRightString(cx + cols[2][1] - 10, y - 16, _tzs(price))
-            cx += cols[2][1]
+            # UNIT PRICE — strikethrough when discounted
+            price_x = cx + cols[col_idx][1] - 10
+            price_y = y - 16
+            if disc_pct > 0:
+                c.setFont('Helvetica', 8.5)
+                c.setFillColor(C_SECONDARY)
+                c.drawRightString(price_x, price_y, _tzs(price))
+                tw = c.stringWidth(_tzs(price), 'Helvetica', 8.5)
+                mid_y = price_y + 4
+                c.setStrokeColor(C_SECONDARY)
+                c.setLineWidth(0.7)
+                c.line(price_x - tw, mid_y, price_x, mid_y)
+            else:
+                c.setFont('Helvetica', 9)
+                c.setFillColor(C_SECONDARY)
+                c.drawRightString(price_x, price_y, _tzs(price))
+            cx += cols[col_idx][1]; col_idx += 1
+
+            # DISC% column (only present when has_discount)
+            if has_discount:
+                disc_cx = cx + cols[col_idx][1] / 2
+                if disc_pct > 0:
+                    c.setFont('Helvetica-Bold', 9)
+                    c.setFillColor(C_ORANGE)
+                    c.drawCentredString(disc_cx, y - 16, f'{disc_pct:g}%')
+                else:
+                    c.setFont('Helvetica', 8)
+                    c.setFillColor(C_SECONDARY)
+                    c.drawCentredString(disc_cx, y - 16, '—')
+                cx += cols[col_idx][1]; col_idx += 1
+
+            # AMOUNT
             c.setFont('Helvetica-Bold', 9.5)
             c.setFillColor(C_TEXT)
-            c.drawRightString(cx + cols[3][1] - 10, y - 16, _tzs(total))
+            c.drawRightString(cx + cols[col_idx][1] - 10, y - 16, _tzs(total))
 
         y -= rh
 
