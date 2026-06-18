@@ -1,0 +1,273 @@
+{% extends 'base.html' %}
+{% set active = 'documents' %}
+{% block title %}Edit {{ doc.doc_number }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Edit Document</h2>
+    <p class="page-sub">
+      <span class="badge-doctype badge-{{ doc.doc_type }}">{{ doc.doc_type | replace('_',' ') | title }}</span>
+      <strong class="ms-2">{{ doc.doc_number }}</strong>
+    </p>
+  </div>
+  <a href="{{ url_for('documents.view', doc_id=doc.id) }}" class="btn btn-ghost">
+    <i class="bi bi-arrow-left"></i> Cancel
+  </a>
+</div>
+
+<div class="alert alert-warning d-flex gap-2 align-items-center mb-4">
+  <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+  <span>Editing changes the saved document and regenerates the PDF. Only fix genuine mistakes here.</span>
+</div>
+
+<form method="POST" action="{{ url_for('documents.edit', doc_id=doc.id) }}" id="doc-form">
+  <input type="hidden" name="vat_rate" value="{{ vat_rate }}">
+
+  <!-- Branch (read-only display) + Payment -->
+  <div class="form-card mb-3">
+    <div class="step-label"><span class="step-num">1</span> Branch &amp; Payment</div>
+    <div class="row g-3 mt-1 align-items-end">
+      <div class="col-md-4">
+        <label class="field-label">Branch</label>
+        <input type="text" class="form-control" value="{{ doc.branch_name }}" readonly
+               style="background:var(--c-surface-low);cursor:default">
+        <input type="hidden" name="branch_id" value="{{ doc.branch_id }}">
+      </div>
+      <div class="col-md-5">
+        <label class="field-label">Payment</label>
+        <div class="payment-type-toggle">
+          <label class="payment-opt payment-opt--cash {% if doc.payment_status != 'credit' %}active{% endif %}" id="opt-paynow">
+            <input type="radio" name="_timing" value="now" {% if doc.payment_status != 'credit' %}checked{% endif %}>
+            <i class="bi bi-check-circle"></i> Pay Now
+          </label>
+          <label class="payment-opt payment-opt--credit {% if doc.payment_status == 'credit' %}active{% endif %}" id="opt-credit">
+            <input type="radio" name="_timing" value="credit" {% if doc.payment_status == 'credit' %}checked{% endif %}>
+            <i class="bi bi-clock-history"></i> Credit / Pay Later
+          </label>
+        </div>
+        <input type="hidden" name="payment_type" id="payment_type"
+               value="{{ 'credit' if doc.payment_status == 'credit' else (doc.payment_method or 'cash') }}">
+
+        <div class="pay-method-wrap" id="method-wrap"
+             {% if doc.payment_status == 'credit' %}style="display:none"{% endif %}>
+          <div class="pay-method-label">How was payment made?</div>
+          <div class="pay-method-grid">
+            {% set cur_method = doc.payment_method or 'cash' %}
+            {% for val, icon, label in [
+              ('cash',          'bi-cash-coin',   'Cash'),
+              ('card',          'bi-credit-card', 'Card / POS'),
+              ('mpesa',         'bi-phone',       'M-Pesa'),
+              ('airtel_money',  'bi-phone',       'Airtel Money'),
+              ('mixx_by_yas',   'bi-phone',       'Mixx by Yas'),
+              ('halopesa',      'bi-phone',       'Halopesa'),
+              ('bank_transfer', 'bi-bank',        'Bank Transfer'),
+              ('other',         'bi-three-dots',  'Other'),
+            ] %}
+            <label class="pay-method-opt {% if val == cur_method %}active{% endif %}"
+                   data-method="{{ val }}">
+              <input type="radio" name="_method" value="{{ val }}"
+                     {% if val == cur_method %}checked{% endif %}>
+              <i class="bi {{ icon }} method-icon"></i>{{ label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3" id="due-date-section"
+           {% if doc.payment_status != 'credit' %}style="display:none"{% endif %}>
+        <label class="field-label">Due Date</label>
+        <input type="date" name="credit_due_date" id="credit_due_date"
+               class="form-control" value="{{ doc.credit_due_date or '' }}">
+      </div>
+      <div class="col-md-2" id="vat-section">
+        <label class="field-label">VAT</label>
+        <div class="toggle-wrap">
+          <label class="toggle-switch">
+            <input type="checkbox" name="is_vat" id="is_vat" value="1"
+                   {% if doc.is_vat %}checked{% endif %}>
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">Add VAT ({{ vat_rate | int }}%)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Customer -->
+  <div class="form-card mb-3">
+    <div class="step-label"><span class="step-num">2</span> Customer</div>
+    <div class="row g-3 mt-1 align-items-end">
+      <div class="col-md-7">
+        <label class="field-label">Customer Name</label>
+        <input type="hidden" name="customer_id" id="customer_id"
+               value="{{ doc.customer_id or '' }}">
+        <div class="position-relative">
+          <input type="text" name="walkin_name" id="walkin_name" class="form-control"
+                 value="{{ doc.customer_name or '' }}"
+                 placeholder="Type name or search contacts…" autocomplete="off">
+          <div id="customer-dropdown" class="ac-dropdown" style="display:none"></div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="field-label">Phone</label>
+        <input type="text" id="customer-phone-display" class="form-control"
+               value="{{ doc.customer_phone or '' }}"
+               placeholder="Auto-filled from contact" readonly
+               style="background:var(--c-surface-low);cursor:default">
+      </div>
+    </div>
+  </div>
+
+  <!-- Items -->
+  <div class="form-card mb-3">
+    <div class="step-label"><span class="step-num">3</span> Items</div>
+    <div class="items-header mt-2">
+      <span class="text-muted" style="font-size:12.5px">Edit items below</span>
+      <button type="button" id="add-item-btn" class="btn-add-item">
+        <i class="bi bi-plus-lg"></i> Add Item
+      </button>
+    </div>
+    <div class="items-scroll">
+      <table class="items-tbl" id="items-table">
+        <thead>
+          <tr>
+            <th style="width:26px">#</th>
+            <th>Item Description</th>
+            <th style="width:80px;text-align:right">Qty</th>
+            <th style="width:160px;text-align:right">Price (TZS)</th>
+            <th style="width:70px;text-align:right">Disc%</th>
+            <th style="width:130px;text-align:right">Amount</th>
+            <th style="width:32px"></th>
+          </tr>
+        </thead>
+        <tbody id="items-body"></tbody>
+      </table>
+    </div>
+    <div id="product-popup" class="ac-dropdown" style="display:none;position:fixed;z-index:500"></div>
+  </div>
+
+  <!-- Notes + Totals -->
+  <div class="row g-3">
+    <div class="col-lg-6 col-xl-7">
+      <div class="form-card h-100">
+        <div class="step-label"><span class="step-num">4</span> Notes</div>
+        <div class="mt-2">
+          <label class="field-label">Notes / Memo</label>
+          <textarea name="notes" class="form-control" rows="3"
+                    placeholder="Any additional notes…">{{ doc.notes or '' }}</textarea>
+        </div>
+        <div id="efd-section" {% if not doc.is_vat %}style="display:none"{% endif %} class="mt-3">
+          <label class="field-label">EFD Reference Number</label>
+          <input type="text" name="efd_reference" class="form-control"
+                 value="{{ doc.efd_reference or '' }}"
+                 placeholder="Enter after EFD machine prints">
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6 col-xl-5">
+      <div class="form-card h-100 d-flex flex-column justify-content-between">
+        <div class="totals-panel">
+          <div class="totals-row">
+            <span>Subtotal</span>
+            <span id="subtotal-display">TZS {{ "{:,.0f}".format(doc.subtotal or 0) }}</span>
+          </div>
+          <div class="totals-row" id="vat-row" {% if not doc.is_vat %}style="display:none"{% endif %}>
+            <span>VAT ({{ vat_rate | int }}%)</span>
+            <span id="vat-display">TZS {{ "{:,.0f}".format(doc.vat_amount or 0) }}</span>
+          </div>
+          <div class="totals-row totals-grand">
+            <span>GRAND TOTAL</span>
+            <span id="total-display">TZS {{ "{:,.0f}".format(doc.total or 0) }}</span>
+          </div>
+        </div>
+        <button type="submit" class="btn-generate mt-3" style="background:#16a34a">
+          <i class="bi bi-check-lg"></i> Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const VAT_RATE            = {{ vat_rate }};
+const CUSTOMER_SEARCH_URL = "{{ url_for('customers.search') }}";
+const PRODUCT_SEARCH_URL  = "{{ url_for('products.search') }}";
+const CUSTOMER_QUICK_ADD  = "{{ url_for('customers.quick_add') }}";
+const TODAY               = "{{ today }}";
+
+// Pre-existing items to load on page init
+const PREFILL_ITEMS = {{ items | map(attribute='description') | list | tojson }};
+const PREFILL_DATA  = [
+  {% for item in items %}
+  {
+    description: {{ item.description.split('\n')[0] | tojson }},
+    specs:       {{ (item.description.split('\n')[1:] | join(', ')) | tojson }},
+    qty:         {{ item.quantity }},
+    price:       {{ item.unit_price }},
+    discount:    {{ item.discount_pct or 0 }},
+    product_id:  {{ item.product_id or 'null' }},
+  },
+  {% endfor %}
+];
+
+// Payment method / timing wiring
+(function () {
+  const timingOpts = document.querySelectorAll('.payment-opt');
+  const methodOpts = document.querySelectorAll('.pay-method-opt');
+  const methodWrap = document.getElementById('method-wrap');
+  const dueSec     = document.getElementById('due-date-section');
+  const payTypeHid = document.getElementById('payment_type');
+
+  function syncPaymentType() {
+    const timing = document.querySelector('input[name="_timing"]:checked')?.value;
+    const method = document.querySelector('input[name="_method"]:checked')?.value || 'cash';
+    payTypeHid.value = timing === 'credit' ? 'credit' : method;
+  }
+
+  timingOpts.forEach(opt => {
+    opt.addEventListener('click', () => {
+      timingOpts.forEach(o => o.classList.remove('active'));
+      opt.classList.add('active');
+      const val = opt.querySelector('input').value;
+      methodWrap.style.display = val === 'credit' ? 'none' : '';
+      dueSec.style.display     = val === 'credit' ? '' : 'none';
+      syncPaymentType();
+    });
+  });
+
+  methodOpts.forEach(opt => {
+    opt.addEventListener('click', () => {
+      methodOpts.forEach(o => o.classList.remove('active'));
+      opt.classList.add('active');
+      opt.querySelector('input').checked = true;
+      syncPaymentType();
+    });
+  });
+
+  syncPaymentType();
+})();
+</script>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+// Pre-populate items after main.js sets up the item-row machinery
+(function waitForAddRow() {
+  if (typeof addItemRow !== 'function') {
+    return setTimeout(waitForAddRow, 30);
+  }
+  PREFILL_DATA.forEach(item => {
+    addItemRow({
+      description: item.description,
+      specs:       item.specs,
+      qty:         item.qty,
+      price:       item.price,
+      discount:    item.discount,
+      product_id:  item.product_id,
+    });
+  });
+  recalcTotals();
+})();
+</script>
+{% endblock %}

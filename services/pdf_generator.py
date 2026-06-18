@@ -26,7 +26,12 @@ try:
     from reportlab.lib.utils import ImageReader as _IR
 
     def _make_qr(data):
-        qr = _qrcode.QRCode(version=1, box_size=3, border=2)
+        qr = _qrcode.QRCode(
+            version=None,
+            error_correction=_qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=3,
+        )
         qr.add_data(data)
         qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
@@ -95,10 +100,11 @@ def generate_pdf(document, customer, items, branch, created_by_name):
         _terms_section(c, y)
 
     qr_data = (
-        f"DOC: {document['doc_number']}\n"
-        f"AMT: TZS {float(document.get('total', 0)):,.0f}\n"
-        f"DATE: {str(document.get('created_at', ''))[:10]}\n"
-        f"TIN: 164-334-864"
+        f"https://sadakalawe.com/verify"
+        f"?doc={document['doc_number']}"
+        f"&amt={int(float(document.get('total', 0)))}"
+        f"&date={str(document.get('created_at', ''))[:10]}"
+        f"&tin=164334864"
     )
     _footer(c, branch, qr_data=qr_data)
     c.save()
@@ -774,14 +780,20 @@ def _signature_and_notes(c, y: float, document: dict):
 def _footer(c, branch: dict, qr_data: str = None):
     """Full-width orange footer — company name left, contact right, optional QR top-right."""
     FH = 54
-    QR_SIZE = 54
+    QR_SIZE = 80
 
-    # QR code just above the footer bar (right-aligned)
+    # QR code just above the footer bar (right-aligned), white background box
+    qr_drawn = False
     if qr_data and _make_qr is not None:
         try:
             qr_img = _make_qr(qr_data)
-            c.drawImage(qr_img, MR - QR_SIZE, FH, width=QR_SIZE, height=QR_SIZE,
+            qr_x = MR - QR_SIZE
+            qr_y = FH + 4
+            c.setFillColor(C_WHITE)
+            c.rect(qr_x - 2, qr_y - 2, QR_SIZE + 4, QR_SIZE + 4, fill=1, stroke=0)
+            c.drawImage(qr_img, qr_x, qr_y, width=QR_SIZE, height=QR_SIZE,
                         preserveAspectRatio=True)
+            qr_drawn = True
         except Exception:
             pass
 
@@ -796,10 +808,10 @@ def _footer(c, branch: dict, qr_data: str = None):
     addr = branch.get('address', 'Bondeni Street, Opp Mega Complex, Arusha')
     c.drawString(ML, FH - 30, addr)
 
-    # Right: phone / website / TIN
+    # Right: phone / website / TIN (shift left to not overlap QR)
     c.setFont('Helvetica', 8)
     c.setFillColor(C_WHITE)
-    right_text_x = MR - QR_SIZE - 8 if (qr_data and _make_qr is not None) else MR
+    right_text_x = MR - QR_SIZE - 10 if qr_drawn else MR
     c.drawRightString(right_text_x, FH - 16, '+255 768 596 006  |  info@sadakalawe.com')
     c.drawRightString(right_text_x, FH - 30, 'www.sadakalawe.com  |  TIN: 164-334-864')
 

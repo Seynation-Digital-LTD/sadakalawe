@@ -477,6 +477,95 @@ def delete(doc_id):
     return redirect(url_for('documents.list'))
 
 
+@bp.route('/<int:doc_id>/edit', methods=['GET', 'POST'])
+@login_required
+@perm_required('create_documents')
+def edit(doc_id):
+    doc = _fetch_doc_full(doc_id)
+    if not doc:
+        flash('Document not found.', 'danger')
+        return redirect(url_for('documents.list'))
+
+    if not current_user.is_admin and doc['created_by'] != current_user.id:
+        flash('You can only edit your own documents.', 'danger')
+        return redirect(url_for('documents.view', doc_id=doc_id))
+
+    old_items = query_db("SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
+    branches  = query_db("SELECT * FROM branches ORDER BY id")
+
+    if request.method == 'POST':
+        parsed_items = _parse_items(request.form)
+        if not parsed_items:
+            flash('At least one item is required.', 'danger')
+            return redirect(url_for('documents.edit', doc_id=doc_id))
+
+        is_vat         = bool(request.form.get('is_vat'))
+        vat_rate_val   = float(request.form.get('vat_rate') or VAT_RATE)
+        customer_id    = request.form.get('customer_id') or None
+        walkin_name    = request.form.get('walkin_name', '').strip() or None
+        payment_type   = request.form.get('payment_type', 'cash')
+        payment_method = request.form.get('_method', doc['payment_method'] or 'cash')
+        credit_due_date = request.form.get('credit_due_date') or None
+        notes          = request.form.get('notes', '').strip() or None
+        efd_reference  = request.form.get('efd_reference', '').strip() or None
+
+        subtotal    = round(sum(i['line_total'] for i in parsed_items), 2)
+        vat_amount  = round(subtotal * vat_rate_val / 100, 2) if is_vat else 0.0
+        total       = round(subtotal + vat_amount, 2)
+        pay_status  = 'credit' if payment_type == 'credit' else (
+            'paid' if total <= (doc['amount_paid'] or 0) + 0.01 else doc['payment_status']
+        )
+
+        # Restore old stock for invoices before rewriting items
+        if doc['doc_type'] == 'invoice':
+            for oi in old_items:
+                if oi['product_id']:
+                    pid = oi['product_id']
+                    qty = abs(float(oi['quantity']))
+                    execute_db("""
+                        INSERT INTO product_stock (product_id, branch_id, quantity) VALUES (?,?,?)
+                        ON CONFLICT(product_id, branch_id)
+                        DO UPDATE SET quantity = quantity + excluded.quantity
+                    """, (pid, doc['branch_id'], qty))
+                    execute_db("""
+                        UPDATE products SET
+                          stock_count=(SELECT COALESCE(SUM(quantity),0)
+                                       FROM product_stock WHERE product_id=?),
+                          updated_at=datetime('now','localtime')
+                        WHERE id=?
+                    """, (pid, pid))
+
+        execute_db("DELETE FROM document_items WHERE document_id=?", (doc_id,))
+        for item in parsed_items:
+            execute_db("""
+                INSERT INTO document_items
+                  (document_id, product_id, description, quantity, unit_price, line_total, discount_pct)
+                VALUES (?,?,?,?,?,?,?)
+            """, (doc_id, item['product_id'], item['description'],
+                  item['quantity'], item['unit_price'], item['line_total'], item['discount_pct']))
+
+        execute_db("""
+            UPDATE documents SET
+              customer_id=?, walkin_name=?, payment_method=?, payment_status=?,
+              credit_due_date=?, notes=?, is_vat=?, vat_rate=?, efd_reference=?,
+              subtotal=?, vat_amount=?, total=?,
+              updated_at=datetime('now','localtime')
+            WHERE id=?
+        """, (customer_id, walkin_name, payment_method, pay_status,
+              credit_due_date, notes, 1 if is_vat else 0, vat_rate_val, efd_reference,
+              subtotal, vat_amount, total, doc_id))
+
+        if doc['doc_type'] == 'invoice':
+            _deduct_stock(parsed_items, doc['branch_id'], doc_id)
+
+        flash(f'{doc["doc_number"]} updated.', 'success')
+        return redirect(url_for('documents.view', doc_id=doc_id))
+
+    return render_template('documents/edit.html',
+                           doc=doc, items=old_items, branches=branches,
+                           vat_rate=VAT_RATE, today=date.today().isoformat())
+
+
 @bp.route('/public/<token>')
 def public_pdf(token):
     """Serve a PDF publicly using a share token — no login required."""
