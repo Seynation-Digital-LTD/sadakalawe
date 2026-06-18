@@ -15,3 +15,8 @@ dist/
 build/
 *.egg-info/
 .DS_Store
+Sadakalawe.app/
+sadakalawe.log
+static/sadakalawe.icns
+static/product_images/*
+!static/product_images/.gitkeep
