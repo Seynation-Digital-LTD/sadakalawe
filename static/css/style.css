@@ -84,15 +84,13 @@ a { color: inherit; text-decoration: none; }
 
 .sidebar {
   width: var(--sidebar-w);
-  min-height: 100vh;
   background: var(--sidebar-bg);
   position: fixed;
   top: 0; left: 0; bottom: 0;
   display: flex;
   flex-direction: column;
   z-index: 100;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 /* brand */
@@ -126,7 +124,15 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* nav */
-.sidebar-nav { flex: 1; padding: 10px 0 6px; }
+.sidebar-nav {
+  flex: 1;
+  min-height: 0;        /* lets flex child shrink so overflow kicks in */
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch; /* smooth scroll on iOS */
+  overscroll-behavior: contain;
+  padding: 10px 0 6px;
+}
 
 .nav-section-label {
   padding: 6px 18px 4px;
@@ -1326,6 +1332,7 @@ a { color: inherit; text-decoration: none; }
   background: rgba(0,0,0,.45);
   z-index: 999;
   backdrop-filter: blur(2px);
+  touch-action: none; /* block page scroll through the overlay */
 }
 .sidebar-overlay.open { display: block; }
 
