@@ -186,6 +186,35 @@ def user_edit(user_id):
                            action='edit')
 
 
+@bp.route('/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def user_delete(user_id):
+    if user_id == current_user.id:
+        flash("You can't delete your own account.", 'danger')
+        return redirect(url_for('auth.users'))
+
+    user = query_db("SELECT * FROM users WHERE id=?", (user_id,), one=True)
+    if not user:
+        flash('User not found.', 'danger')
+        return redirect(url_for('auth.users'))
+
+    if user['role'] == 'owner' and not current_user.is_owner:
+        flash('Access denied.', 'danger')
+        return redirect(url_for('auth.users'))
+
+    doc_count = query_db("SELECT COUNT(*) AS cnt FROM documents WHERE created_by=?",
+                         (user_id,), one=True)['cnt']
+    if doc_count:
+        flash(f'Cannot delete "{user["full_name"]}" — they created {doc_count} document(s). '
+              f'Deactivate the account via Edit instead.', 'danger')
+        return redirect(url_for('auth.users'))
+
+    execute_db("DELETE FROM users WHERE id=?", (user_id,))
+    flash(f'User "{user["full_name"]}" deleted.', 'success')
+    return redirect(url_for('auth.users'))
+
+
 @bp.route('/profile', methods=['GET', 'POST'])
 @login_required
 def profile():

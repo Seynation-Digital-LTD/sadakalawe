@@ -126,6 +126,15 @@
              class="btn btn-xs btn-outline-primary" title="Edit">
             <i class="bi bi-pencil"></i>
           </a>
+          {% if current_user.can('manage_products') %}
+          <form method="POST" action="{{ url_for('products.delete', product_id=p.id) }}"
+                style="display:inline"
+                onsubmit="return confirm('Delete {{ p.model }}?')">
+            <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+          {% endif %}
         </td>
       </tr>
       {% else %}

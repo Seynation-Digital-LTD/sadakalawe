@@ -50,15 +50,30 @@ def new():
             flash('Customer name is required.', 'danger')
             return render_template('customers/form.html', branches=branches, action='new')
 
+        phone = request.form.get('phone', '').strip()
+        tin   = request.form.get('tin', '').strip().upper() or None
+
+        # Duplicate checks
+        if phone:
+            dup = query_db("SELECT id, name FROM customers WHERE phone=?", (phone,), one=True)
+            if dup:
+                flash(f'Phone {phone} is already registered to "{dup["name"]}". '
+                      f'Check existing customer first.', 'danger')
+                return render_template('customers/form.html', branches=branches, action='new')
+        dup_name = query_db("SELECT id FROM customers WHERE LOWER(name)=LOWER(?)", (name,), one=True)
+        if dup_name:
+            flash(f'A customer named "{name}" already exists.', 'danger')
+            return render_template('customers/form.html', branches=branches, action='new')
+
         branch_id = request.form.get('branch_id') or (current_user.branch_id if not current_user.is_admin else None)
         cid = execute_db("""
             INSERT INTO customers (name, phone, email, tin, address, notes, branch_id)
             VALUES (?,?,?,?,?,?,?)
         """, (
             name,
-            request.form.get('phone', '').strip(),
+            phone or None,
             request.form.get('email', '').strip().lower() or None,
-            request.form.get('tin', '').strip().upper() or None,
+            tin,
             tc(request.form.get('address', '')),
             sc(request.form.get('notes', '')),
             branch_id,
@@ -108,15 +123,33 @@ def edit(customer_id):
             flash('Customer name is required.', 'danger')
             return render_template('customers/form.html', customer=customer, branches=branches, action='edit')
 
+        phone = request.form.get('phone', '').strip()
+        tin   = request.form.get('tin', '').strip().upper() or None
+
+        # Duplicate checks (exclude current record)
+        if phone:
+            dup = query_db("SELECT id, name FROM customers WHERE phone=? AND id!=?",
+                           (phone, customer_id), one=True)
+            if dup:
+                flash(f'Phone {phone} is already registered to "{dup["name"]}".', 'danger')
+                return render_template('customers/form.html', customer=customer,
+                                       branches=branches, action='edit')
+        dup_name = query_db("SELECT id FROM customers WHERE LOWER(name)=LOWER(?) AND id!=?",
+                            (name, customer_id), one=True)
+        if dup_name:
+            flash(f'Another customer named "{name}" already exists.', 'danger')
+            return render_template('customers/form.html', customer=customer,
+                                   branches=branches, action='edit')
+
         branch_id = request.form.get('branch_id') or None
         execute_db("""
             UPDATE customers SET name=?, phone=?, email=?, tin=?, address=?, notes=?, branch_id=?,
             updated_at=datetime('now') WHERE id=?
         """, (
             name,
-            request.form.get('phone', '').strip(),
+            phone or None,
             request.form.get('email', '').strip().lower() or None,
-            request.form.get('tin', '').strip().upper() or None,
+            tin,
             tc(request.form.get('address', '')),
             sc(request.form.get('notes', '')),
             branch_id,
@@ -149,6 +182,25 @@ def quick_add():
     ))
     return jsonify({'id': cid, 'name': name,
                     'phone': data.get('phone', '').strip()})
+
+
+@bp.route('/<int:customer_id>/delete', methods=['POST'])
+@login_required
+@perm_required('manage_customers')
+def delete(customer_id):
+    customer = query_db("SELECT * FROM customers WHERE id=?", (customer_id,), one=True)
+    if not customer:
+        flash('Customer not found.', 'danger')
+        return redirect(url_for('customers.list'))
+    doc_count = query_db("SELECT COUNT(*) AS cnt FROM documents WHERE customer_id=?",
+                         (customer_id,), one=True)['cnt']
+    if doc_count:
+        flash(f'Cannot delete "{customer["name"]}" — they have {doc_count} document(s) in the system. '
+              f'Delete those documents first.', 'danger')
+        return redirect(url_for('customers.list'))
+    execute_db("DELETE FROM customers WHERE id=?", (customer_id,))
+    flash(f'Customer "{customer["name"]}" deleted.', 'success')
+    return redirect(url_for('customers.list'))
 
 
 @bp.route('/search')

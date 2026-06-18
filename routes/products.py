@@ -85,6 +85,14 @@ def new():
             return render_template('products/form.html',
                                    categories=categories, subcategories=subcategories, action='new')
 
+        # Duplicate check
+        dup = query_db("SELECT id FROM products WHERE LOWER(model)=LOWER(?) AND category_id=?",
+                       (model, cat_id), one=True)
+        if dup:
+            flash(f'A product "{model}" in this category already exists.', 'danger')
+            return render_template('products/form.html',
+                                   categories=categories, subcategories=subcategories, action='new')
+
         # Derive brand_category from selected category name (backward compat)
         cat = query_db("SELECT name FROM product_categories WHERE id=?", (cat_id,), one=True)
         brand_category = cat['name'] if cat else 'Other'
@@ -145,6 +153,14 @@ def edit(product_id):
         subcat_id = request.form.get('subcategory_id') or None
         is_active = 1 if request.form.get('is_active') else 0
 
+        # Duplicate check (exclude current product)
+        dup = query_db("SELECT id FROM products WHERE LOWER(model)=LOWER(?) AND category_id=? AND id!=?",
+                       (model, cat_id, product_id), one=True)
+        if dup:
+            flash(f'Another product "{model}" in this category already exists.', 'danger')
+            return render_template('products/form.html', product=product,
+                                   categories=categories, subcategories=subcategories, action='edit')
+
         cat = query_db("SELECT name FROM product_categories WHERE id=?", (cat_id,), one=True)
         brand_category = cat['name'] if cat else 'Other'
 
@@ -185,6 +201,27 @@ def api_subcategories(cat_id):
         (cat_id,)
     )
     return jsonify([{'id': r['id'], 'name': r['name']} for r in rows])
+
+
+@bp.route('/<int:product_id>/delete', methods=['POST'])
+@login_required
+@perm_required('manage_products')
+def delete(product_id):
+    product = query_db("SELECT * FROM products WHERE id=?", (product_id,), one=True)
+    if not product:
+        flash('Product not found.', 'danger')
+        return redirect(url_for('products.list'))
+    used = query_db("SELECT COUNT(*) AS cnt FROM document_items WHERE product_id=?",
+                    (product_id,), one=True)['cnt']
+    if used:
+        # Soft delete — keep for document history, just hide from catalog
+        execute_db("UPDATE products SET is_active=0 WHERE id=?", (product_id,))
+        flash(f'"{product["model"]}" has been used in {used} document(s) — '
+              f'it has been deactivated (hidden from catalog) to preserve history.', 'warning')
+    else:
+        execute_db("DELETE FROM products WHERE id=?", (product_id,))
+        flash(f'Product "{product["model"]}" deleted.', 'success')
+    return redirect(url_for('products.list'))
 
 
 @bp.route('/search')
