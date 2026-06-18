@@ -36,9 +36,10 @@
       <i class="bi bi-truck"></i> Create Delivery Note
     </button>
     {% endif %}
-    <a href="{{ url_for('documents.whatsapp_share', doc_id=doc.id) }}" class="btn btn-success">
+    <button type="button" id="wa-btn" class="btn btn-success"
+            onclick="waSendPdf(this)">
       <i class="bi bi-whatsapp"></i> WhatsApp
-    </a>
+    </button>
     {% if doc.doc_type == 'invoice' and current_user.can('create_documents') %}
     <a href="{{ url_for('financing.new', from_doc=doc.id) }}" class="btn btn-outline-primary">
       <i class="bi bi-calendar-check"></i> Financing Plan
@@ -521,5 +522,74 @@
     });
   });
 })();
+
+// WhatsApp PDF share
+const WA_PDF_URL      = "{{ url_for('documents.download_pdf', doc_id=doc.id) }}";
+const WA_FALLBACK_URL = "{{ url_for('documents.whatsapp_share', doc_id=doc.id) }}";
+const WA_DOC_NUMBER   = "{{ doc.doc_number }}";
+
+async function waSendPdf(btn) {
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Preparing…';
+
+  try {
+    // Fetch the PDF (user is already authenticated)
+    const resp = await fetch(WA_PDF_URL);
+    if (!resp.ok) throw new Error('fetch_failed');
+    const blob = await resp.blob();
+    const file = new File([blob], WA_DOC_NUMBER + '.pdf', { type: 'application/pdf' });
+
+    // Try native share sheet (works on Android, iOS, Safari macOS 12+)
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: WA_DOC_NUMBER });
+      btn.innerHTML = orig;
+      btn.disabled = false;
+      return;
+    }
+
+    // Browser doesn't support file sharing — download + open WhatsApp with link
+    _downloadAndFallback(blob, orig, btn);
+
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      // User dismissed the share sheet — that's fine
+      btn.innerHTML = orig;
+      btn.disabled = false;
+      return;
+    }
+    // Any other error — fall back to link
+    window.open(WA_FALLBACK_URL, '_blank');
+    btn.innerHTML = orig;
+    btn.disabled = false;
+  }
+}
+
+function _downloadAndFallback(blob, origHtml, btn) {
+  // Auto-download the PDF
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = WA_DOC_NUMBER + '.pdf';
+  a.click();
+  URL.revokeObjectURL(a.href);
+
+  // Show a toast telling staff what to do next
+  _toast('PDF downloaded — open WhatsApp and attach the file from your Downloads folder.', 6000);
+  btn.innerHTML = origHtml;
+  btn.disabled = false;
+}
+
+function _toast(msg, duration) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  Object.assign(t.style, {
+    position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
+    background: '#1b1c1c', color: '#fff', padding: '12px 20px', borderRadius: '10px',
+    fontSize: '13px', zIndex: '9999', maxWidth: '90vw', textAlign: 'center',
+    boxShadow: '0 4px 20px rgba(0,0,0,.3)',
+  });
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), duration);
+}
 </script>
 {% endblock %}
