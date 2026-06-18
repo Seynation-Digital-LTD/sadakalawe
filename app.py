@@ -1,6 +1,8 @@
 import os
+import logging
+import traceback
 from datetime import timedelta, datetime
-from flask import Flask, redirect, url_for, session
+from flask import Flask, redirect, url_for, session, render_template
 from flask_login import LoginManager, current_user
 from database import close_db, init_db
 from models import User
@@ -104,6 +106,59 @@ def create_app():
     @app.route('/')
     def index():
         return redirect(url_for('reports.dashboard'))
+
+    # ── Error handlers ─────────────────────────────────────────
+    def _err(code, title, message, detail=None):
+        try:
+            return render_template('errors/error.html',
+                                   code=code, title=title,
+                                   message=message, detail=detail), code
+        except Exception:
+            # Last-resort fallback if the template itself fails
+            return (f'<h2>{code} – {title}</h2><p>{message}</p>'
+                    f'<a href="/">Go to Dashboard</a>'), code
+
+    @app.errorhandler(400)
+    def bad_request(e):
+        return _err(400, 'Bad Request',
+                    'The request could not be understood. Please go back and try again.')
+
+    @app.errorhandler(403)
+    def forbidden(e):
+        return _err(403, 'Access Denied',
+                    "You don't have permission to do that. "
+                    "Contact your administrator if you think this is a mistake.")
+
+    @app.errorhandler(404)
+    def not_found(e):
+        return _err(404, 'Page Not Found',
+                    "We couldn't find that page or record. "
+                    "It may have been deleted or the link might be wrong.")
+
+    @app.errorhandler(413)
+    def too_large(e):
+        return _err(413, 'File Too Large',
+                    'The file you uploaded is too large. '
+                    'Maximum allowed size is 16 MB. Please use a smaller file.')
+
+    @app.errorhandler(500)
+    def server_error(e):
+        logging.exception('Unhandled 500 error')
+        return _err(500, 'Something Went Wrong',
+                    'An unexpected error occurred. Please try again. '
+                    'If the problem keeps happening, let the system administrator know.')
+
+    @app.errorhandler(Exception)
+    def unhandled_exception(e):
+        # Log the full traceback to the console for debugging
+        logging.exception('Unhandled exception: %s', e)
+        # In debug mode, let Flask show its interactive debugger
+        if app.debug:
+            raise e
+        return _err(500, 'Something Went Wrong',
+                    'An unexpected error occurred. Please try again. '
+                    'If this keeps happening, restart the application.',
+                    detail=str(e) if app.config.get('SHOW_ERROR_DETAIL') else None)
 
     return app
 
