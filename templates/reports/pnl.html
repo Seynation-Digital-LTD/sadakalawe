@@ -5,8 +5,8 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <h2 class="page-title">Profit &amp; Loss Report</h2>
-    <p class="page-sub">Cash collected vs expenses + smart suggestions</p>
+    <h2 class="page-title">Profit &amp; Loss</h2>
+    <p class="page-sub">Revenue · Cost of Goods · Gross Margin · Net Profit</p>
   </div>
 </div>
 
@@ -27,76 +27,85 @@
       <select name="branch_id" class="form-select">
         <option value="">All Branches</option>
         {% for b in branches %}
-        <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>
-          {{ b.name }}
-        </option>
+        <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>{{ b.name }}</option>
         {% endfor %}
       </select>
     </div>
     {% endif %}
     <div class="col-sm-12 col-md-3">
-      <button type="submit" class="btn btn-primary w-100">
-        <i class="bi bi-funnel-fill"></i> Apply
-      </button>
+      <button type="submit" class="btn btn-primary w-100"><i class="bi bi-funnel-fill"></i> Apply</button>
     </div>
   </form>
 </div>
 
-<!-- KPI cards -->
+<!-- Missing cost price warning -->
+{% if missing_cost_count > 0 %}
+<div class="alert alert-warning d-flex gap-2 align-items-start mb-4">
+  <i class="bi bi-exclamation-triangle-fill flex-shrink-0 mt-1"></i>
+  <div>
+    <strong>{{ missing_cost_count }} product(s) have no cost price set</strong> — COGS and gross margin below are understated.
+    <a href="{{ url_for('products.list') }}" class="alert-link ms-1">Go set buying prices →</a>
+  </div>
+</div>
+{% endif %}
+
+<!-- Primary KPIs -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3">
     <div class="stat-card">
-      <div class="stat-label">Total Revenue</div>
+      <div class="stat-label">Revenue</div>
       <div class="stat-value">{{ "{:,.0f}".format(revenue) }}</div>
-      <div class="stat-sub">TZS — invoiced</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-card" style="--card-accent:#22c55e">
-      <div class="stat-label">Cash Collected</div>
-      <div class="stat-value">{{ "{:,.0f}".format(collected) }}</div>
-      <div class="stat-sub">TZS — actually paid</div>
+      <div class="stat-sub">TZS invoiced</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="stat-card" style="--card-accent:#ef4444">
-      <div class="stat-label">Total Expenses</div>
-      <div class="stat-value">{{ "{:,.0f}".format(expenses) }}</div>
-      <div class="stat-sub">TZS — recorded costs</div>
+      <div class="stat-label">Cost of Goods (COGS)</div>
+      <div class="stat-value">{{ "{:,.0f}".format(cogs) }}</div>
+      <div class="stat-sub">TZS buying cost</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
-    <div class="stat-card" style="--card-accent:{% if net >= 0 %}#22c55e{% else %}#ef4444{% endif %}">
-      <div class="stat-label">Net Position</div>
-      <div class="stat-value" style="color:{% if net >= 0 %}var(--c-success,#22c55e){% else %}#ef4444{% endif %}">
-        {% if net >= 0 %}+{% endif %}{{ "{:,.0f}".format(net) }}
+    <div class="stat-card" style="--card-accent:{% if gross_profit >= 0 %}#22c55e{% else %}#ef4444{% endif %}">
+      <div class="stat-label">Gross Profit</div>
+      <div class="stat-value" style="color:{% if gross_profit >= 0 %}#22c55e{% else %}#ef4444{% endif %}">
+        {{ "{:,.0f}".format(gross_profit) }}
       </div>
-      <div class="stat-sub">collected − expenses</div>
+      <div class="stat-sub">{{ "{:.1f}".format(gross_margin) }}% margin</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card" style="--card-accent:{% if net_profit >= 0 %}#16a34a{% else %}#ef4444{% endif %}">
+      <div class="stat-label">Net Profit</div>
+      <div class="stat-value" style="color:{% if net_profit >= 0 %}#16a34a{% else %}#ef4444{% endif %}">
+        {% if net_profit > 0 %}+{% endif %}{{ "{:,.0f}".format(net_profit) }}
+      </div>
+      <div class="stat-sub">after expenses</div>
     </div>
   </div>
 </div>
 
-<!-- Secondary metrics -->
+<!-- Secondary KPIs -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3">
+    <div class="stat-card" style="--card-accent:#22c55e">
+      <div class="stat-label">Cash Collected</div>
+      <div class="stat-value">{{ "{:,.0f}".format(collected) }}</div>
+      <div class="stat-sub">TZS actually paid</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
     <div class="stat-card" style="--card-accent:#f59e0b">
-      <div class="stat-label">Outstanding (Unpaid)</div>
+      <div class="stat-label">Still Outstanding</div>
       <div class="stat-value text-warning">{{ "{:,.0f}".format(outstanding) }}</div>
-      <div class="stat-sub">TZS in pending invoices</div>
+      <div class="stat-sub">TZS unpaid invoices</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
-    <div class="stat-card" style="--card-accent:#6366f1">
-      <div class="stat-label">Financing Collected</div>
-      <div class="stat-value">{{ "{:,.0f}".format(financing_in) }}</div>
-      <div class="stat-sub">TZS installments paid</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-card" style="--card-accent:#0ea5e9">
-      <div class="stat-label">Trade-In Credit Given</div>
-      <div class="stat-value">{{ "{:,.0f}".format(tradein_credit) }}</div>
-      <div class="stat-sub">TZS — reduce buy costs</div>
+    <div class="stat-card" style="--card-accent:#ef4444">
+      <div class="stat-label">Operating Expenses</div>
+      <div class="stat-value">{{ "{:,.0f}".format(expenses) }}</div>
+      <div class="stat-sub">TZS recorded costs</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
@@ -108,37 +117,59 @@
   </div>
 </div>
 
-<div class="row g-4">
-  <!-- Revenue by item -->
-  <div class="col-lg-6">
+<div class="row g-4 mb-4">
+  <!-- Top items by revenue + margin -->
+  <div class="col-lg-7">
     <div class="form-card h-100">
-      <h6 class="fw-bold mb-3"><i class="bi bi-trophy text-warning me-1"></i> Top Revenue Items</h6>
+      <h6 class="fw-bold mb-3"><i class="bi bi-trophy text-warning me-1"></i> Top Items — Revenue &amp; Margin</h6>
       {% if top_items %}
       {% set max_rev = top_items[0].rev | float %}
       <table class="table table-sm table-hover mb-0">
         <thead>
           <tr>
             <th>Item</th>
-            <th class="text-end">Qty</th>
-            <th class="text-end">Revenue (TZS)</th>
-            <th style="width:80px"></th>
+            <th class="text-end">Revenue</th>
+            <th class="text-end">Cost</th>
+            <th class="text-end">Margin</th>
+            <th style="width:70px"></th>
           </tr>
         </thead>
         <tbody>
           {% for item in top_items %}
+          {% set item_rev  = item.rev  | float %}
+          {% set item_cost = item.cost | float %}
+          {% set item_gp   = item_rev - item_cost %}
+          {% set item_margin = (item_gp / item_rev * 100) if item_rev > 0 and item_cost > 0 else none %}
           <tr>
             <td style="font-size:13px">{{ item.description }}</td>
-            <td class="text-end" style="font-size:13px">{{ "{:,.0f}".format(item.qty) }}</td>
-            <td class="text-end fw-bold" style="font-size:13px">{{ "{:,.0f}".format(item.rev | float) }}</td>
+            <td class="text-end fw-bold" style="font-size:13px">{{ "{:,.0f}".format(item_rev) }}</td>
+            <td class="text-end text-muted" style="font-size:12px">
+              {% if item_cost > 0 %}{{ "{:,.0f}".format(item_cost) }}{% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td class="text-end" style="font-size:13px">
+              {% if item_margin is not none %}
+              <span style="color:{% if item_margin >= 25 %}#16a34a{% elif item_margin >= 15 %}#f59e0b{% else %}#ef4444{% endif %};font-weight:700">
+                {{ "{:.0f}%".format(item_margin) }}
+              </span>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
             <td>
-              <div style="height:6px;border-radius:3px;background:#f3f4f6;overflow:hidden">
-                <div style="height:100%;border-radius:3px;background:var(--c-orange,#f26522);width:{{ (item.rev | float / max_rev * 100) | int }}%"></div>
+              <div style="height:5px;border-radius:3px;background:#f3f4f6">
+                <div style="height:100%;border-radius:3px;background:var(--c-orange,#f26522);width:{{ (item_rev / max_rev * 100) | int }}%"></div>
               </div>
             </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
+      {% if uncosted_lines > 0 %}
+      <p class="text-muted mt-2 mb-0" style="font-size:11px">
+        <i class="bi bi-info-circle me-1"></i>
+        {{ uncosted_lines }} of {{ total_lines }} line items have no cost price — those margins show as —
+      </p>
+      {% endif %}
       {% else %}
       <p class="text-muted small">No invoice items in this period.</p>
       {% endif %}
@@ -146,7 +177,7 @@
   </div>
 
   <!-- Expenses by category -->
-  <div class="col-lg-6">
+  <div class="col-lg-5">
     <div class="form-card h-100">
       <h6 class="fw-bold mb-3"><i class="bi bi-wallet2 text-danger me-1"></i> Expenses by Category</h6>
       {% if exp_cats %}
@@ -155,37 +186,32 @@
         <thead>
           <tr>
             <th>Category</th>
-            <th class="text-end">Amount (TZS)</th>
+            <th class="text-end">TZS</th>
             <th class="text-end">%</th>
-            <th style="width:80px"></th>
           </tr>
         </thead>
         <tbody>
           {% for cat in exp_cats %}
           <tr>
-            <td style="font-size:13px">{{ cat.category }}</td>
-            <td class="text-end fw-bold" style="font-size:13px">{{ "{:,.0f}".format(cat.total | float) }}</td>
-            <td class="text-end" style="font-size:12px;color:var(--c-muted)">
-              {{ "{:.0f}%".format(cat.total / expenses * 100) if expenses > 0 else '—' }}
-            </td>
-            <td>
-              <div style="height:6px;border-radius:3px;background:#f3f4f6;overflow:hidden">
-                <div style="height:100%;border-radius:3px;background:#ef4444;width:{{ (cat.total | float / max_exp * 100) | int }}%"></div>
+            <td style="font-size:13px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="height:6px;width:{{ (cat.total | float / max_exp * 60) | int }}px;min-width:4px;border-radius:3px;background:#ef4444"></div>
+                {{ cat.category }}
               </div>
+            </td>
+            <td class="text-end fw-bold" style="font-size:13px">{{ "{:,.0f}".format(cat.total | float) }}</td>
+            <td class="text-end text-muted" style="font-size:12px">
+              {{ "{:.0f}%".format(cat.total / expenses * 100) if expenses > 0 else '—' }}
             </td>
           </tr>
           {% endfor %}
         </tbody>
-        <tfoot>
-          <tr>
-            <th>Total</th>
-            <th class="text-end">{{ "{:,.0f}".format(expenses) }}</th>
-            <th colspan="2"></th>
-          </tr>
-        </tfoot>
+        <tfoot><tr><th>Total</th><th class="text-end">{{ "{:,.0f}".format(expenses) }}</th><th></th></tr></tfoot>
       </table>
       {% else %}
-      <p class="text-muted small">No expenses recorded in this period. <a href="{{ url_for('expenses.new') }}">Add expenses</a> to see a breakdown.</p>
+      <p class="text-muted small mb-0">No expenses recorded in this period.
+        <a href="{{ url_for('expenses.new') }}">Add expenses →</a>
+      </p>
       {% endif %}
     </div>
   </div>
@@ -193,7 +219,7 @@
 
 <!-- Suggestions -->
 {% if suggestions %}
-<div class="form-card mt-4">
+<div class="form-card mb-4">
   <h6 class="fw-bold mb-3"><i class="bi bi-lightbulb-fill text-warning me-1"></i> Recommendations</h6>
   <div class="row g-2">
     {% for s in suggestions %}
@@ -208,43 +234,59 @@
 </div>
 {% endif %}
 
-<!-- Summary table -->
-<div class="form-card mt-4">
+<!-- P&L Summary table -->
+<div class="form-card">
   <h6 class="fw-bold mb-3"><i class="bi bi-table me-1"></i> Period Summary</h6>
-  <table class="table table-sm mb-0" style="max-width:480px">
+  <table class="table table-sm mb-0" style="max-width:520px">
     <tbody>
-      <tr>
-        <td>Gross Revenue Invoiced</td>
-        <td class="text-end fw-bold">TZS {{ "{:,.0f}".format(revenue) }}</td>
+      <tr class="fw-bold" style="font-size:15px">
+        <td>Revenue</td>
+        <td class="text-end">TZS {{ "{:,.0f}".format(revenue) }}</td>
       </tr>
       <tr>
-        <td class="ps-3 text-muted" style="font-size:13px">— Collected</td>
-        <td class="text-end" style="font-size:13px">{{ "{:,.0f}".format(collected) }}</td>
+        <td class="ps-3 text-muted" style="font-size:13px">— Cost of Goods Sold (COGS)</td>
+        <td class="text-end text-danger" style="font-size:13px">({{ "{:,.0f}".format(cogs) }})</td>
       </tr>
-      <tr>
-        <td class="ps-3 text-muted" style="font-size:13px">— Still Outstanding</td>
-        <td class="text-end text-warning" style="font-size:13px">{{ "{:,.0f}".format(outstanding) }}</td>
-      </tr>
-      <tr><td colspan="2"><hr class="my-1"></td></tr>
-      <tr>
-        <td>Total Expenses</td>
-        <td class="text-end fw-bold text-danger">TZS {{ "{:,.0f}".format(expenses) }}</td>
-      </tr>
-      <tr>
-        <td>Financing Installments Received</td>
-        <td class="text-end">TZS {{ "{:,.0f}".format(financing_in) }}</td>
-      </tr>
-      <tr><td colspan="2"><hr class="my-1"></td></tr>
-      <tr style="font-size:15px">
-        <td class="fw-bold">Net Cash Position</td>
-        <td class="text-end fw-bold" style="color:{% if net >= 0 %}#22c55e{% else %}#ef4444{% endif %}">
-          TZS {% if net >= 0 %}+{% endif %}{{ "{:,.0f}".format(net) }}
+      <tr style="border-top:2px solid #e5e7eb">
+        <td class="fw-bold">Gross Profit</td>
+        <td class="text-end fw-bold" style="color:{% if gross_profit >= 0 %}#22c55e{% else %}#ef4444{% endif %}">
+          TZS {{ "{:,.0f}".format(gross_profit) }}
+          <span class="text-muted fw-normal" style="font-size:12px">({{ "{:.1f}%".format(gross_margin) }})</span>
         </td>
       </tr>
+      <tr>
+        <td class="ps-3 text-muted" style="font-size:13px">— Operating Expenses</td>
+        <td class="text-end text-danger" style="font-size:13px">({{ "{:,.0f}".format(expenses) }})</td>
+      </tr>
+      <tr style="border-top:2px solid #e5e7eb;font-size:16px">
+        <td class="fw-bold">Net Profit</td>
+        <td class="text-end fw-bold" style="color:{% if net_profit >= 0 %}#16a34a{% else %}#ef4444{% endif %}">
+          TZS {% if net_profit > 0 %}+{% endif %}{{ "{:,.0f}".format(net_profit) }}
+        </td>
+      </tr>
+      <tr><td colspan="2"><hr class="my-2"></td></tr>
+      <tr>
+        <td class="text-muted" style="font-size:13px">Cash Actually Collected</td>
+        <td class="text-end" style="font-size:13px;color:#22c55e;font-weight:600">{{ "{:,.0f}".format(collected) }}</td>
+      </tr>
+      <tr>
+        <td class="text-muted" style="font-size:13px">Still Outstanding (unpaid)</td>
+        <td class="text-end text-warning" style="font-size:13px">{{ "{:,.0f}".format(outstanding) }}</td>
+      </tr>
+      {% if financing_in > 0 %}
+      <tr>
+        <td class="text-muted" style="font-size:13px">Financing Installments Collected</td>
+        <td class="text-end" style="font-size:13px">{{ "{:,.0f}".format(financing_in) }}</td>
+      </tr>
+      {% endif %}
     </tbody>
   </table>
-  <p class="text-muted mt-2 mb-0" style="font-size:11px">
-    Net = Cash Collected − Expenses (excludes uncollected credit sales)
+  {% if missing_cost_count > 0 or uncosted_lines > 0 %}
+  <p class="text-muted mt-3 mb-0" style="font-size:11px">
+    <i class="bi bi-info-circle me-1"></i>
+    COGS covers only items with a cost price set.
+    {% if uncosted_lines > 0 %}{{ uncosted_lines }} line item(s) this period had no cost price — true COGS is higher.{% endif %}
   </p>
+  {% endif %}
 </div>
 {% endblock %}

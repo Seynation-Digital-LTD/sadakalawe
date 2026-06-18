@@ -399,123 +399,166 @@ def pnl_report():
     date_from = request.args.get('date_from', date.today().replace(day=1).isoformat())
     date_to   = request.args.get('date_to',   date.today().isoformat())
 
-    b_filter = " AND branch_id=?" if branch_id else ""
-    b_args   = [branch_id] if branch_id else []
+    b_filter    = " AND d.branch_id=?" if branch_id else ""
+    b_filter_e  = " AND branch_id=?"  if branch_id else ""
+    b_args      = [branch_id] if branch_id else []
 
-    # Revenue: all invoice totals in period
+    # ── Revenue ──────────────────────────────────────────────────────────
     rev = query_db(
-        f"SELECT COALESCE(SUM(total),0) AS v FROM documents "
-        f"WHERE doc_type='invoice' AND DATE(created_at) BETWEEN ? AND ? {b_filter}",
+        f"SELECT COALESCE(SUM(total),0) AS v, COALESCE(SUM(amount_paid),0) AS paid "
+        f"FROM documents WHERE doc_type='invoice' AND DATE(created_at) BETWEEN ? AND ? {b_filter_e}",
         [date_from, date_to] + b_args, one=True)
-    revenue = float(rev['v'])
-
-    # Revenue breakdown: paid vs credit
-    rev_paid = query_db(
-        f"SELECT COALESCE(SUM(amount_paid),0) AS v FROM documents "
-        f"WHERE doc_type='invoice' AND DATE(created_at) BETWEEN ? AND ? {b_filter}",
-        [date_from, date_to] + b_args, one=True)
-    collected = float(rev_paid['v'])
+    revenue     = float(rev['v'])
+    collected   = float(rev['paid'])
     outstanding = revenue - collected
 
-    # Expenses
+    # ── COGS: qty * cost_price for tracked products ───────────────────────
+    cogs_sql = (
+        f"SELECT COALESCE(SUM(di.quantity * p.cost_price), 0) AS cogs, "
+        f"       COUNT(DISTINCT CASE WHEN p.cost_price > 0 THEN di.id END) AS costed_lines, "
+        f"       COUNT(DISTINCT di.id) AS total_lines "
+        f"FROM document_items di "
+        f"JOIN documents d ON di.document_id = d.id "
+        f"LEFT JOIN products p ON di.product_id = p.id "
+        f"WHERE d.doc_type='invoice' AND DATE(d.created_at) BETWEEN ? AND ? {b_filter}"
+    )
+    cogs_row    = query_db(cogs_sql, [date_from, date_to] + b_args, one=True)
+    cogs        = float(cogs_row['cogs'])
+    costed_lines  = int(cogs_row['costed_lines'] or 0)
+    total_lines   = int(cogs_row['total_lines'] or 0)
+    uncosted_lines = total_lines - costed_lines   # lines with no cost price
+
+    gross_profit = revenue - cogs
+    gross_margin = (gross_profit / revenue * 100) if revenue > 0 else 0
+
+    # Products missing cost price (for the warning banner)
+    missing_cost = query_db(
+        "SELECT COUNT(*) AS v FROM products WHERE is_active=1 AND cost_price = 0", one=True)
+    missing_cost_count = int(missing_cost['v'])
+
+    # ── Expenses ─────────────────────────────────────────────────────────
     exp = query_db(
         f"SELECT COALESCE(SUM(amount),0) AS v FROM expenses "
-        f"WHERE DATE(expense_date) BETWEEN ? AND ? {b_filter}",
+        f"WHERE DATE(expense_date) BETWEEN ? AND ? {b_filter_e}",
         [date_from, date_to] + b_args, one=True)
     expenses = float(exp['v'])
 
-    # Expenses breakdown by category
     exp_cats = query_db(
         f"SELECT category, COALESCE(SUM(amount),0) AS total FROM expenses "
-        f"WHERE DATE(expense_date) BETWEEN ? AND ? {b_filter} "
+        f"WHERE DATE(expense_date) BETWEEN ? AND ? {b_filter_e} "
         f"GROUP BY category ORDER BY total DESC",
         [date_from, date_to] + b_args)
 
-    # Financing: collected installments in period
-    fin_collected = query_db(
+    # ── Net profit ────────────────────────────────────────────────────────
+    # Gross profit = revenue - COGS  (product margin)
+    # Net profit   = gross profit - operating expenses
+    net_profit = gross_profit - expenses
+
+    # Cash position = collected - expenses (actual cash flow)
+    cash_position = collected - expenses
+
+    # ── Financing & trade-ins ─────────────────────────────────────────────
+    fin_row = query_db(
         "SELECT COALESCE(SUM(fi.amount_paid),0) AS v "
-        "FROM financing_installments fi "
-        "JOIN financing_plans fp ON fi.plan_id=fp.id "
+        "FROM financing_installments fi JOIN financing_plans fp ON fi.plan_id=fp.id "
         "WHERE fi.status='paid' AND DATE(fi.paid_date) BETWEEN ? AND ?",
         [date_from, date_to], one=True)
-    financing_in = float(fin_collected['v'])
+    financing_in = float(fin_row['v'])
 
-    # Trade-ins: credit given out in period
-    ti_credit = query_db(
+    ti_row = query_db(
         "SELECT COALESCE(SUM(credit_offered),0) AS v FROM tradeins "
         "WHERE status='accepted' AND DATE(created_at) BETWEEN ? AND ?",
         [date_from, date_to], one=True)
-    tradein_credit = float(ti_credit['v'])
+    tradein_credit = float(ti_row['v'])
 
-    # Top revenue categories
-    cat_sql = (
-        f"SELECT di.description, SUM(di.line_total) AS rev, SUM(di.quantity) AS qty "
-        f"FROM document_items di JOIN documents d ON di.document_id=d.id "
+    # ── Top items by revenue + margin ─────────────────────────────────────
+    top_sql = (
+        f"SELECT di.description, "
+        f"       SUM(di.line_total) AS rev, "
+        f"       SUM(di.quantity) AS qty, "
+        f"       SUM(di.quantity * COALESCE(p.cost_price, 0)) AS cost "
+        f"FROM document_items di "
+        f"JOIN documents d ON di.document_id=d.id "
+        f"LEFT JOIN products p ON di.product_id=p.id "
         f"WHERE d.doc_type='invoice' AND DATE(d.created_at) BETWEEN ? AND ? {b_filter} "
         f"GROUP BY di.description ORDER BY rev DESC LIMIT 8"
     )
-    top_items = query_db(cat_sql, [date_from, date_to] + b_args)
+    top_items = query_db(top_sql, [date_from, date_to] + b_args)
 
-    # Credit sales ratio
-    cr_count = query_db(
-        f"SELECT COUNT(*) AS v FROM documents WHERE doc_type='invoice' "
-        f"AND payment_status IN ('credit','partial') "
-        f"AND DATE(created_at) BETWEEN ? AND ? {b_filter}",
+    # ── Credit sales ratio ────────────────────────────────────────────────
+    inv_counts = query_db(
+        f"SELECT COUNT(*) AS total, "
+        f"SUM(CASE WHEN payment_status IN ('credit','partial') THEN 1 ELSE 0 END) AS on_credit "
+        f"FROM documents WHERE doc_type='invoice' AND DATE(created_at) BETWEEN ? AND ? {b_filter_e}",
         [date_from, date_to] + b_args, one=True)
-    total_inv = query_db(
-        f"SELECT COUNT(*) AS v FROM documents WHERE doc_type='invoice' "
-        f"AND DATE(created_at) BETWEEN ? AND ? {b_filter}",
-        [date_from, date_to] + b_args, one=True)
-    credit_ratio = (cr_count['v'] / total_inv['v'] * 100) if total_inv['v'] else 0
+    credit_ratio = ((inv_counts['on_credit'] or 0) / inv_counts['total'] * 100
+                    if inv_counts['total'] else 0)
 
-    net = collected - expenses  # cash-in minus cash-out
-
-    # Build suggestions
+    # ── Suggestions ───────────────────────────────────────────────────────
     suggestions = []
+
+    if missing_cost_count > 0:
+        suggestions.append({
+            'icon': 'bi-exclamation-circle', 'color': 'warning',
+            'text': f'{missing_cost_count} product(s) have no cost price set — '
+                    f'COGS and gross margin are understated. Go to Product Catalog and fill in buying prices.'
+        })
+    if gross_margin > 0:
+        if gross_margin < 15:
+            suggestions.append({
+                'icon': 'bi-graph-down-arrow', 'color': 'danger',
+                'text': f'Gross margin is very thin at {gross_margin:.1f}%. Check supplier prices or consider raising selling prices.'
+            })
+        elif gross_margin < 25:
+            suggestions.append({
+                'icon': 'bi-exclamation-triangle', 'color': 'warning',
+                'text': f'Gross margin is {gross_margin:.1f}%. Healthy range for electronics retail is 25–40%. Room to improve.'
+            })
+        else:
+            suggestions.append({
+                'icon': 'bi-check-circle', 'color': 'success',
+                'text': f'Gross margin is {gross_margin:.1f}% — solid. Keep monitoring per-product margins to protect it.'
+            })
     if outstanding > 0:
         suggestions.append({
             'icon': 'bi-clock-history', 'color': 'warning',
-            'text': f'TZS {outstanding:,.0f} in invoices is still unpaid — follow up with customers on outstanding balances.'
+            'text': f'TZS {outstanding:,.0f} in invoices still unpaid. Follow up to convert outstanding to collected cash.'
         })
     if credit_ratio > 30:
         suggestions.append({
-            'icon': 'bi-exclamation-triangle', 'color': 'warning',
-            'text': f'{credit_ratio:.0f}% of invoices this period were on credit. Consider tightening payment terms or requiring deposits.'
+            'icon': 'bi-person-x', 'color': 'warning',
+            'text': f'{credit_ratio:.0f}% of invoices this period were on credit. Consider stricter deposit requirements.'
         })
-    if expenses > collected * 0.5 and collected > 0:
+    if expenses > gross_profit * 0.8 and gross_profit > 0:
         suggestions.append({
             'icon': 'bi-graph-down', 'color': 'danger',
-            'text': f'Expenses ({expenses:,.0f}) are over 50% of cash collected ({collected:,.0f}). Review the biggest expense categories.'
+            'text': f'Operating expenses (TZS {expenses:,.0f}) are eating most of your gross profit. Review the biggest cost categories.'
         })
     if top_items:
         top = top_items[0]
+        top_margin = ((float(top['rev']) - float(top['cost'])) / float(top['rev']) * 100
+                      if float(top['rev']) > 0 and float(top['cost']) > 0 else None)
+        tip = f' (margin: {top_margin:.0f}%)' if top_margin is not None else ''
         suggestions.append({
             'icon': 'bi-trophy', 'color': 'success',
-            'text': f'Best performer: "{top["description"]}" generated TZS {float(top["rev"]):,.0f} this period. Keep it well-stocked.'
+            'text': f'Top seller: "{top["description"]}" — TZS {float(top["rev"]):,.0f} revenue{tip}. Keep it well stocked.'
         })
-    if tradein_credit > 0:
-        suggestions.append({
-            'icon': 'bi-arrow-left-right', 'color': 'info',
-            'text': f'TZS {tradein_credit:,.0f} was given as trade-in credit. Ensure traded devices are valued correctly to protect margins.'
-        })
-    if net < 0:
+    if net_profit < 0 and cogs > 0:
         suggestions.append({
             'icon': 'bi-exclamation-circle-fill', 'color': 'danger',
-            'text': 'Cash position is negative this period — money out exceeded money in. Urgently review expenses and unpaid invoices.'
-        })
-    elif net > 0 and suggestions == []:
-        suggestions.append({
-            'icon': 'bi-check-circle-fill', 'color': 'success',
-            'text': 'Strong period — cash collected exceeds expenses. Consider reinvesting surplus into fast-moving stock.'
+            'text': f'Net profit is negative (TZS {net_profit:,.0f}). Expenses exceed gross profit — urgent review needed.'
         })
 
     branches = query_db("SELECT * FROM branches ORDER BY name")
     return render_template('reports/pnl.html',
                            revenue=revenue, collected=collected, outstanding=outstanding,
+                           cogs=cogs, costed_lines=costed_lines, total_lines=total_lines,
+                           uncosted_lines=uncosted_lines, missing_cost_count=missing_cost_count,
+                           gross_profit=gross_profit, gross_margin=gross_margin,
                            expenses=expenses, exp_cats=exp_cats,
+                           net_profit=net_profit, cash_position=cash_position,
                            financing_in=financing_in, tradein_credit=tradein_credit,
-                           net=net, top_items=top_items,
-                           credit_ratio=credit_ratio,
+                           top_items=top_items, credit_ratio=credit_ratio,
                            suggestions=suggestions,
                            branches=branches, branch_filter=branch_id,
                            date_from=date_from, date_to=date_to)
