@@ -84,6 +84,58 @@
   </div>
 </div>
 
+<!-- Low Stock Detail Panel -->
+{% if low_stock %}
+<div class="card-section mb-4" style="border-left:4px solid #f59e0b">
+  <div class="section-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-exclamation-triangle-fill me-2" style="color:#f59e0b"></i>
+      Stock Reorder Needed — {{ low_stock | length }} product{{ 's' if low_stock | length != 1 }}</span>
+    <a href="{{ url_for('stock.index') }}?low=1" class="btn btn-sm btn-outline-warning">
+      View All in Stock Manager
+    </a>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="data-table" style="margin-top:8px">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>Category</th>
+          <th class="text-end">Current Stock</th>
+          <th class="text-end">Reorder Level</th>
+          <th class="text-end">Need to Order</th>
+          <th style="width:90px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in low_stock %}
+        <tr>
+          <td class="fw-semibold">{{ p.model }}</td>
+          <td class="text-muted small">{{ p.brand_category }}</td>
+          <td class="text-end">
+            {% if p.total_stock == 0 %}
+              <span class="badge bg-danger-subtle text-danger fw-bold">OUT</span>
+            {% else %}
+              <span class="fw-bold" style="color:#b45309">{{ p.total_stock | int }}</span>
+            {% endif %}
+          </td>
+          <td class="text-end text-muted">{{ p.low_stock_alert }}</td>
+          <td class="text-end text-muted small">
+            +{{ [p.low_stock_alert - p.total_stock, 0] | max | int }} units
+          </td>
+          <td class="text-end">
+            <a href="{{ url_for('stock.stock_in') }}?product_id={{ p.id }}"
+               class="btn btn-xs btn-outline-success">
+              <i class="bi bi-plus-lg"></i> Stock In
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 <!-- Branch Split + Top Products -->
 <div class="row g-3 mb-4">
   <div class="col-lg-5">

@@ -9,9 +9,15 @@
     <p class="page-sub">{{ expenses | length }} record{{ 's' if expenses | length != 1 }}
       &nbsp;·&nbsp; Total: <strong>TZS {{ '{:,.0f}'.format(total) }}</strong></p>
   </div>
-  <a href="{{ url_for('expenses.new') }}" class="btn btn-primary">
-    <i class="bi bi-plus-lg"></i> Add Expense
-  </a>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('expenses.list', branch_id=branch_filter, category=category_filter, date_from=date_from, date_to=date_to, export='csv') }}"
+       class="btn btn-ghost btn-sm"><i class="bi bi-filetype-csv"></i> CSV</a>
+    <a href="{{ url_for('expenses.list', branch_id=branch_filter, category=category_filter, date_from=date_from, date_to=date_to, export='excel') }}"
+       class="btn btn-ghost btn-sm"><i class="bi bi-file-earmark-excel-fill" style="color:#1d6f42"></i> Excel</a>
+    <a href="{{ url_for('expenses.new') }}" class="btn btn-primary">
+      <i class="bi bi-plus-lg"></i> Add Expense
+    </a>
+  </div>
 </div>
 
 <!-- Filters -->

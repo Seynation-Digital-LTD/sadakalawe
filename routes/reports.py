@@ -94,7 +94,7 @@ def dashboard():
     credit_summary = query_db(credit_sql, credit_args, one=True)
 
     low_stock = query_db("""
-        SELECT p.brand_category, p.model, p.low_stock_alert,
+        SELECT p.id, p.brand_category, p.model, p.low_stock_alert,
                COALESCE(SUM(ps.quantity),0) AS total_stock
         FROM products p
         LEFT JOIN product_stock ps ON ps.product_id=p.id
@@ -102,7 +102,6 @@ def dashboard():
         GROUP BY p.id
         HAVING total_stock <= p.low_stock_alert
         ORDER BY total_stock ASC
-        LIMIT 6
     """)
 
     tp_sql = """
@@ -548,6 +547,74 @@ def pnl_report():
             'icon': 'bi-exclamation-circle-fill', 'color': 'danger',
             'text': f'Net profit is negative (TZS {net_profit:,.0f}). Expenses exceed gross profit — urgent review needed.'
         })
+
+    export = request.args.get('export', '')
+    if export == 'excel':
+        wb = openpyxl.Workbook()
+
+        # Sheet 1 — Summary
+        ws = wb.active
+        ws.title = 'P&L Summary'
+        hdr_fill = PatternFill('solid', fgColor=ORANGE)
+        hdr_font = Font(bold=True, color=WHITE)
+        def _sh(ws, row, col, val, bold=False, orange_bg=False):
+            c = ws.cell(row=row, column=col, value=val)
+            if orange_bg:
+                c.fill = hdr_fill
+                c.font = hdr_font
+            elif bold:
+                c.font = Font(bold=True)
+            return c
+
+        ws.column_dimensions['A'].width = 32
+        ws.column_dimensions['B'].width = 22
+        summary_rows = [
+            ('Period',          f'{date_from}  →  {date_to}'),
+            ('Branch',          branch_id or 'All Branches'),
+            ('', ''),
+            ('Revenue',         revenue),
+            ('Collected',       collected),
+            ('Outstanding',     outstanding),
+            ('', ''),
+            ('Cost of Goods (COGS)', cogs),
+            ('Gross Profit',    gross_profit),
+            ('Gross Margin',    f'{gross_margin:.1f}%'),
+            ('', ''),
+            ('Operating Expenses', expenses),
+            ('', ''),
+            ('NET PROFIT',      net_profit),
+            ('Cash Position',   cash_position),
+        ]
+        for i, (label, value) in enumerate(summary_rows, start=1):
+            is_total = label in ('NET PROFIT', 'Gross Profit', 'Revenue')
+            _sh(ws, i, 1, label, bold=is_total, orange_bg=is_total)
+            _sh(ws, i, 2, value, bold=is_total, orange_bg=is_total)
+
+        # Sheet 2 — Top Items
+        ws2 = wb.create_sheet('Top Items')
+        for col, h in enumerate(['Item', 'Qty', 'Revenue (TZS)', 'COGS (TZS)', 'Margin (TZS)'], 1):
+            c = ws2.cell(row=1, column=col, value=h)
+            c.fill = hdr_fill; c.font = hdr_font
+        for item in top_items:
+            rev_i  = float(item['rev'])
+            cost_i = float(item['cost'])
+            ws2.append([item['description'], float(item['qty']),
+                        rev_i, cost_i, rev_i - cost_i])
+        for col in range(1, 6):
+            ws2.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 22
+
+        # Sheet 3 — Expenses by Category
+        ws3 = wb.create_sheet('Expenses by Category')
+        for col, h in enumerate(['Category', 'Total (TZS)'], 1):
+            c = ws3.cell(row=1, column=col, value=h)
+            c.fill = hdr_fill; c.font = hdr_font
+        for cat in exp_cats:
+            ws3.append([cat['category'], float(cat['total'])])
+        ws3.column_dimensions['A'].width = 30
+        ws3.column_dimensions['B'].width = 20
+
+        fname = f"PnL_{date_from}_{date_to}.xlsx"
+        return _xlsx_response(wb, fname)
 
     branches = query_db("SELECT * FROM branches ORDER BY name")
     return render_template('reports/pnl.html',

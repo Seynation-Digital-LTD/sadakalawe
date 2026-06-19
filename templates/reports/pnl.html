@@ -8,6 +8,10 @@
     <h2 class="page-title">Profit &amp; Loss</h2>
     <p class="page-sub">Revenue · Cost of Goods · Gross Margin · Net Profit</p>
   </div>
+  <a href="{{ url_for('reports.pnl_report', date_from=date_from, date_to=date_to, branch_id=branch_filter, export='excel') }}"
+     class="btn btn-ghost btn-sm">
+    <i class="bi bi-file-earmark-excel-fill" style="color:#1d6f42"></i> Excel
+  </a>
 </div>
 
 <!-- Filters -->

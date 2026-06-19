@@ -1,7 +1,11 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file
 from flask_login import login_required, current_user
 from database import execute_db, query_db
 from datetime import date
+from io import BytesIO, StringIO
+import csv
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
 
 bp = Blueprint('expenses', __name__, url_prefix='/expenses')
 
@@ -54,6 +58,7 @@ def list():
 
     sql += " ORDER BY e.expense_date DESC, e.id DESC LIMIT 500"
     expenses = query_db(sql, args)
+    export = request.args.get('export', '')
 
     total = sum(float(e['amount']) for e in expenses)
 
@@ -62,6 +67,49 @@ def list():
     for e in expenses:
         cat_totals[e['category']] = cat_totals.get(e['category'], 0) + float(e['amount'])
     cat_totals = sorted(cat_totals.items(), key=lambda x: x[1], reverse=True)
+
+    headers = ['Date', 'Branch', 'Category', 'Description', 'Amount (TZS)', 'Receipt Ref', 'Recorded By']
+
+    if export == 'csv':
+        si = StringIO()
+        w = csv.writer(si)
+        w.writerow(headers)
+        for e in expenses:
+            w.writerow([e['expense_date'], e['branch_name'], e['category'],
+                        e['description'], e['amount'], e['receipt_ref'] or '',
+                        e['staff_name'] or ''])
+        buf = BytesIO(si.getvalue().encode('utf-8-sig'))
+        return send_file(buf, mimetype='text/csv', as_attachment=True,
+                         download_name=f"Expenses_{date.today().isoformat()}.csv")
+
+    if export == 'excel':
+        ORANGE = 'FFF26522'
+        WHITE  = 'FFFFFFFF'
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Expenses'
+        hdr_fill = PatternFill('solid', fgColor=ORANGE)
+        hdr_font = Font(bold=True, color=WHITE)
+        for col, h in enumerate(headers, 1):
+            c = ws.cell(row=1, column=col, value=h)
+            c.fill = hdr_fill; c.font = hdr_font
+            c.alignment = Alignment(horizontal='center')
+        for e in expenses:
+            ws.append([e['expense_date'], e['branch_name'], e['category'],
+                       e['description'], float(e['amount']),
+                       e['receipt_ref'] or '', e['staff_name'] or ''])
+        # Totals row
+        row = ws.max_row + 1
+        ws.cell(row=row, column=1, value='TOTAL').font = Font(bold=True)
+        ws.cell(row=row, column=5, value=total).font = Font(bold=True)
+        for col in range(1, len(headers) + 1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 20
+        buf = BytesIO()
+        wb.save(buf); buf.seek(0)
+        return send_file(buf,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                         as_attachment=True,
+                         download_name=f"Expenses_{date.today().isoformat()}.xlsx")
 
     branches = query_db("SELECT * FROM branches ORDER BY name")
     return render_template('expenses/list.html',
