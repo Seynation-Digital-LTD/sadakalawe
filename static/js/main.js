@@ -242,4 +242,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (typeof recalcOnce !== 'undefined' && recalcOnce) recalc();
+
+  // Expose for barcode scan handler
+  window._addDocRow = addRow;
+  window._docRowSearchProducts = searchProducts;
 });

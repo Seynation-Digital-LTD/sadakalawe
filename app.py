@@ -107,6 +107,11 @@ def create_app():
     def index():
         return redirect(url_for('reports.dashboard'))
 
+    @app.route('/ping')
+    def ping():
+        from flask import jsonify
+        return jsonify(ok=True)
+
     # ── Error handlers ─────────────────────────────────────────
     def _err(code, title, message, detail=None):
         try:

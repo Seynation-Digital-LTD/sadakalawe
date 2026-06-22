@@ -171,7 +171,21 @@
   <!-- ── Step 3: Items ── -->
   <div class="form-card mb-3">
     <div class="step-label"><span class="step-num">3</span> Items Sold</div>
-    <div class="items-header mt-2">
+
+    <!-- Barcode / IMEI scan -->
+    <div class="barcode-scan-wrap mt-2 mb-3">
+      <div class="input-group input-group-sm" style="max-width:380px">
+        <span class="input-group-text" style="background:var(--c-orange);color:#fff;border-color:var(--c-orange)">
+          <i class="bi bi-upc-scan"></i>
+        </span>
+        <input type="text" id="barcode-scan-input" class="form-control"
+               placeholder="Scan barcode / IMEI — press Enter to add item"
+               autocomplete="off" autocorrect="off" spellcheck="false">
+        <span id="barcode-scan-status" class="input-group-text text-muted" style="font-size:11px;min-width:100px"></span>
+      </div>
+    </div>
+
+    <div class="items-header">
       <span class="text-muted" style="font-size:12.5px">Add each item below</span>
       <button type="button" id="add-item-btn" class="btn-add-item">
         <i class="bi bi-plus-lg"></i> Add Item
@@ -358,6 +372,63 @@ const TODAY               = "{{ today if today else '' }}";
       saveBtn.disabled = false;
       saveBtn.innerHTML = '<i class="bi bi-person-check"></i> Save Contact';
     }
+  });
+})();
+</script>
+
+<!-- Barcode / IMEI scan handler -->
+<script>
+(function () {
+  const scanInp    = document.getElementById('barcode-scan-input');
+  const scanStatus = document.getElementById('barcode-scan-status');
+  if (!scanInp) return;
+
+  function setStatus(msg, ok) {
+    scanStatus.textContent = msg;
+    scanStatus.style.color = ok === true ? '#16a34a' : ok === false ? '#dc2626' : '#6b7280';
+  }
+
+  scanInp.addEventListener('keydown', async function (e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const q = scanInp.value.trim();
+    if (!q) return;
+
+    setStatus('Searching…', null);
+
+    try {
+      const res  = await fetch(PRODUCT_SEARCH_URL + '?q=' + encodeURIComponent(q));
+      const data = await res.json();
+
+      if (!data.length) {
+        setStatus('No product found', false);
+        return;
+      }
+
+      // Prefer exact barcode match; fall back to first result
+      let product = data.find(p => p.barcode && p.barcode.toLowerCase() === q.toLowerCase());
+      if (!product) product = data[0];
+
+      const catLabel = product.subcategory_name
+        ? `${product.category_name} › ${product.subcategory_name}`
+        : (product.category_name || '');
+      const desc = catLabel ? `${catLabel} — ${product.model}` : product.model;
+
+      if (window._addDocRow) {
+        window._addDocRow(desc, 1, product.price, '', 0, product.id);
+      }
+
+      setStatus('Added: ' + product.model, true);
+      scanInp.value = '';
+      setTimeout(() => setStatus('', null), 3000);
+    } catch (err) {
+      setStatus('Error — try again', false);
+    }
+  });
+
+  // Also clear status on typing
+  scanInp.addEventListener('input', () => {
+    if (!scanInp.value) setStatus('', null);
   });
 })();
 </script>

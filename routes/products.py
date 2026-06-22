@@ -129,8 +129,8 @@ def new():
         pid = execute_db("""
             INSERT INTO products
               (brand_category, category_id, subcategory_id, model, description,
-               price, cost_price, stock_count, sku)
-            VALUES (?,?,?,?,?,?,?,?,?)
+               price, cost_price, stock_count, sku, barcode)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
         """, (
             brand_category,
             int(cat_id),
@@ -141,6 +141,7 @@ def new():
             float(request.form.get('cost_price', 0) or 0),
             int(request.form.get('stock_count', 0) or 0),
             request.form.get('sku', '').strip() or None,
+            request.form.get('barcode', '').strip() or None,
         ))
 
         # Handle image upload
@@ -213,7 +214,7 @@ def edit(product_id):
             UPDATE products SET
               brand_category=?, category_id=?, subcategory_id=?,
               model=?, description=?, price=?, cost_price=?, stock_count=?, sku=?,
-              is_active=?, image_path=?, updated_at=datetime('now','localtime')
+              barcode=?, is_active=?, image_path=?, updated_at=datetime('now','localtime')
             WHERE id=?
         """, (
             brand_category,
@@ -225,6 +226,7 @@ def edit(product_id):
             float(request.form.get('cost_price', 0) or 0),
             int(request.form.get('stock_count', 0) or 0),
             request.form.get('sku', '').strip() or None,
+            request.form.get('barcode', '').strip() or None,
             is_active,
             new_image_path,
             product_id,
@@ -285,8 +287,8 @@ def search():
         LEFT JOIN product_subcategories ps ON p.subcategory_id = ps.id
         WHERE p.is_active=1
           AND (p.model LIKE ? OR p.description LIKE ? OR p.sku LIKE ?
-               OR pc.name LIKE ? OR ps.name LIKE ?)
+               OR pc.name LIKE ? OR ps.name LIKE ? OR p.barcode LIKE ?)
         ORDER BY pc.sort_order, ps.sort_order, p.model
         LIMIT 25
-    """, (f'%{q}%',) * 5)
+    """, (f'%{q}%',) * 6)
     return jsonify([dict(r) for r in rows])

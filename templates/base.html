@@ -162,10 +162,70 @@
   toggle.addEventListener('click', () => sidebar.classList.contains('open') ? closeSidebar() : openSidebar());
   overlay.addEventListener('click', closeSidebar);
 
-  // Close sidebar when a nav link is clicked on mobile
   sidebar.querySelectorAll('.nav-link').forEach(a => a.addEventListener('click', closeSidebar));
 })();
 </script>
+
+<!-- Offline indicator -->
+<div id="offline-banner" style="
+  display:none;
+  position:fixed;bottom:0;left:0;right:0;z-index:9999;
+  background:#1f2937;color:#fff;
+  padding:10px 20px;
+  font-size:13px;font-weight:600;
+  display:none;align-items:center;justify-content:center;gap:10px;
+  border-top:3px solid #f59e0b;
+  box-shadow:0 -2px 12px rgba(0,0,0,.3);
+">
+  <i class="bi bi-wifi-off" style="font-size:16px;color:#f59e0b"></i>
+  <span>Server not responding — waiting to reconnect…</span>
+  <span id="offline-dot" style="
+    width:8px;height:8px;border-radius:50%;background:#f59e0b;
+    animation:pulse-dot 1.2s ease-in-out infinite;display:inline-block;
+  "></span>
+</div>
+<style>
+@keyframes pulse-dot {
+  0%,100% { opacity:1; transform:scale(1); }
+  50%      { opacity:.4; transform:scale(1.4); }
+}
+</style>
+<script>
+(function () {
+  const banner = document.getElementById('offline-banner');
+  let   wasOffline = false;
+  let   checkTimer;
+
+  async function checkServer() {
+    try {
+      const r = await fetch('/ping', { cache: 'no-store' });
+      if (r.ok) {
+        if (wasOffline) {
+          banner.style.display = 'none';
+          wasOffline = false;
+          // Auto-reload so any stale state is refreshed
+          location.reload();
+        }
+      } else {
+        showOffline();
+      }
+    } catch (_) {
+      showOffline();
+    }
+  }
+
+  function showOffline() {
+    if (!wasOffline) {
+      banner.style.display = 'flex';
+      wasOffline = true;
+    }
+  }
+
+  // Poll every 8 seconds
+  checkTimer = setInterval(checkServer, 8000);
+})();
+</script>
+
 {% block scripts %}{% endblock %}
 </body>
 </html>
