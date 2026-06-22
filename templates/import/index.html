@@ -6,7 +6,7 @@
 <div class="page-header">
   <div>
     <h2 class="page-title">Import Data</h2>
-    <p class="page-sub">Bulk import products or customers from CSV, Excel, or vCard files</p>
+    <p class="page-sub">Bulk-load products or customers from CSV, Excel, or phone contacts</p>
   </div>
 </div>
 
@@ -15,92 +15,110 @@
   <!-- Products Import -->
   <div class="col-lg-6">
     <div class="card-section h-100">
-      <h5 class="fw-bold mb-1"><i class="bi bi-box-seam me-2" style="color:var(--c-orange)"></i>Import Products</h5>
-      <p class="text-muted small mb-3">Accepted formats: CSV, XLSX, XLS</p>
+      <h5 class="fw-bold mb-1">
+        <i class="bi bi-box-seam me-2" style="color:var(--c-orange)"></i>Import Products
+      </h5>
+      <p class="text-muted small mb-3">CSV or Excel (.xlsx / .xls)</p>
 
-      <table class="table table-sm table-bordered mb-3" style="font-size:12px">
-        <thead style="background:var(--c-surface-low,#f5f3f3)">
-          <tr>
-            <th>Column</th>
-            <th>Required?</th>
-            <th>Notes</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td><code>model</code></td><td><span class="badge bg-danger-subtle text-danger">Yes</span></td><td>Product name / model</td></tr>
-          <tr><td><code>brand_category</code> or <code>category</code></td><td>No</td><td>Matched against catalog categories</td></tr>
-          <tr><td><code>description</code></td><td>No</td><td>Optional specs or variants</td></tr>
-          <tr><td><code>price</code></td><td>No</td><td>Selling price (TZS)</td></tr>
-          <tr><td><code>cost_price</code></td><td>No</td><td>Buying price (TZS)</td></tr>
-          <tr><td><code>stock_count</code></td><td>No</td><td>Initial stock</td></tr>
-          <tr><td><code>sku</code></td><td>No</td><td>Your own reference code</td></tr>
-        </tbody>
-      </table>
+      <!-- Column reference -->
+      <details class="mb-3">
+        <summary class="text-muted small" style="cursor:pointer;user-select:none">
+          <i class="bi bi-info-circle me-1"></i>Expected columns (click to expand)
+        </summary>
+        <table class="table table-sm table-bordered mt-2 mb-0" style="font-size:12px">
+          <thead style="background:var(--c-surface-low)">
+            <tr><th>Column</th><th>Required?</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>model</code></td><td><span class="badge bg-danger-subtle text-danger">Yes</span></td><td>Product name / model</td></tr>
+            <tr><td><code>brand_category</code></td><td>No</td><td>e.g. iPhone, MacBook, Anker</td></tr>
+            <tr><td><code>price</code></td><td>No</td><td>Selling price (TZS)</td></tr>
+            <tr><td><code>cost_price</code></td><td>No</td><td>Buying price (TZS)</td></tr>
+            <tr><td><code>stock_count</code></td><td>No</td><td>Initial stock quantity</td></tr>
+            <tr><td><code>sku</code></td><td>No</td><td>Your own reference code</td></tr>
+            <tr><td><code>description</code></td><td>No</td><td>Specs / variant details</td></tr>
+          </tbody>
+        </table>
+      </details>
 
       <a href="{{ url_for('static', filename='samples/sample_products.csv') }}"
          class="btn btn-sm btn-outline-secondary mb-3">
         <i class="bi bi-download"></i> Download Sample CSV
       </a>
 
-      <div id="products-drop" class="import-drop-zone" ondragover="event.preventDefault()" ondrop="handleDrop(event,'products')">
+      <div id="products-drop" class="import-drop-zone"
+           ondragover="event.preventDefault()"
+           ondrop="handleDrop(event,'products')">
         <i class="bi bi-cloud-upload" style="font-size:2rem;color:var(--c-orange);opacity:.7"></i>
         <p class="mt-2 mb-1 fw-semibold">Drag &amp; drop file here</p>
         <p class="text-muted small mb-3">or click to browse</p>
         <input type="file" id="products-file" accept=".csv,.xlsx,.xls" style="display:none"
-               onchange="uploadFile('products', this)">
+               onchange="loadPreview('products', this)">
         <button type="button" class="btn btn-primary btn-sm"
                 onclick="document.getElementById('products-file').click()">
           <i class="bi bi-folder2-open"></i> Choose File
         </button>
       </div>
 
-      <div id="products-result" class="mt-3" style="display:none"></div>
+      <div id="products-preview" class="mt-3" style="display:none"></div>
+      <div id="products-result"  class="mt-3" style="display:none"></div>
     </div>
   </div>
 
   <!-- Customers Import -->
   <div class="col-lg-6">
     <div class="card-section h-100">
-      <h5 class="fw-bold mb-1"><i class="bi bi-people me-2" style="color:var(--c-orange)"></i>Import Customers</h5>
-      <p class="text-muted small mb-3">Accepted formats: CSV, XLSX, XLS, VCF (vCard)</p>
+      <h5 class="fw-bold mb-1">
+        <i class="bi bi-people me-2" style="color:var(--c-orange)"></i>Import Customers
+      </h5>
+      <p class="text-muted small mb-3">CSV, Excel (.xlsx / .xls), or Phone Contacts (.vcf)</p>
 
-      <table class="table table-sm table-bordered mb-3" style="font-size:12px">
-        <thead style="background:var(--c-surface-low,#f5f3f3)">
-          <tr>
-            <th>Column</th>
-            <th>Required?</th>
-            <th>Notes</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td><code>name</code></td><td><span class="badge bg-danger-subtle text-danger">Yes</span></td><td>Customer full name</td></tr>
-          <tr><td><code>phone</code></td><td>No</td><td>Phone number</td></tr>
-          <tr><td><code>email</code></td><td>No</td><td>Email address</td></tr>
-          <tr><td><code>tin</code></td><td>No</td><td>Tax Identification Number</td></tr>
-          <tr><td><code>address</code></td><td>No</td><td>Physical address</td></tr>
-          <tr><td><code>notes</code></td><td>No</td><td>Any notes</td></tr>
-        </tbody>
-      </table>
+      <details class="mb-3">
+        <summary class="text-muted small" style="cursor:pointer;user-select:none">
+          <i class="bi bi-info-circle me-1"></i>Expected columns (click to expand)
+        </summary>
+        <table class="table table-sm table-bordered mt-2 mb-0" style="font-size:12px">
+          <thead style="background:var(--c-surface-low)">
+            <tr><th>Column</th><th>Required?</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>name</code></td><td><span class="badge bg-danger-subtle text-danger">Yes</span></td><td>Full name</td></tr>
+            <tr><td><code>phone</code></td><td>No</td><td>Phone number</td></tr>
+            <tr><td><code>email</code></td><td>No</td><td>Email address</td></tr>
+            <tr><td><code>tin</code></td><td>No</td><td>Tax ID (businesses)</td></tr>
+            <tr><td><code>address</code></td><td>No</td><td>Physical address</td></tr>
+            <tr><td><code>notes</code></td><td>No</td><td>Any notes</td></tr>
+          </tbody>
+        </table>
+        <p class="text-muted mt-2 mb-0" style="font-size:12px">
+          <i class="bi bi-phone-fill me-1" style="color:var(--c-orange)"></i>
+          <strong>From phone (.vcf):</strong> Export contacts from iPhone or Android, then import the .vcf file directly.
+        </p>
+      </details>
 
-      <p class="text-muted small mb-3">
-        <i class="bi bi-phone-fill me-1" style="color:var(--c-orange)"></i>
-        <strong>vCard (.vcf):</strong> Export contacts from your phone and import directly.
-        <code>FN</code>, <code>TEL</code>, <code>EMAIL</code>, and <code>ADR</code> fields are parsed automatically.
-      </p>
+      <div class="d-flex gap-2 mb-3">
+        <a href="{{ url_for('static', filename='samples/sample_customers.csv') }}"
+           class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-download"></i> Sample CSV
+        </a>
+      </div>
 
-      <div id="customers-drop" class="import-drop-zone" ondragover="event.preventDefault()" ondrop="handleDrop(event,'customers')">
+      <div id="customers-drop" class="import-drop-zone"
+           ondragover="event.preventDefault()"
+           ondrop="handleDrop(event,'customers')">
         <i class="bi bi-cloud-upload" style="font-size:2rem;color:var(--c-orange);opacity:.7"></i>
         <p class="mt-2 mb-1 fw-semibold">Drag &amp; drop file here</p>
         <p class="text-muted small mb-3">or click to browse</p>
         <input type="file" id="customers-file" accept=".csv,.xlsx,.xls,.vcf" style="display:none"
-               onchange="uploadFile('customers', this)">
+               onchange="loadPreview('customers', this)">
         <button type="button" class="btn btn-primary btn-sm"
                 onclick="document.getElementById('customers-file').click()">
           <i class="bi bi-folder2-open"></i> Choose File
         </button>
       </div>
 
-      <div id="customers-result" class="mt-3" style="display:none"></div>
+      <div id="customers-preview" class="mt-3" style="display:none"></div>
+      <div id="customers-result"  class="mt-3" style="display:none"></div>
     </div>
   </div>
 
@@ -118,74 +136,168 @@
   cursor: pointer;
 }
 .import-drop-zone:hover, .import-drop-zone.dragover {
-  border-color: var(--c-orange, #F26522);
+  border-color: var(--c-orange);
   background: #fff7ed;
 }
+.preview-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.preview-table { font-size: 12px; min-width: 400px; }
+.preview-table th { background: var(--c-surface-low); white-space: nowrap; }
+.preview-table td { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
+
 <script>
+// Stored file references for the confirm step
+const _files = {};
+
 function handleDrop(event, type) {
   event.preventDefault();
-  const dt   = event.dataTransfer;
-  const file = dt.files[0];
+  const file = event.dataTransfer.files[0];
   if (!file) return;
   const inp = document.getElementById(type + '-file');
-  const dt2 = new DataTransfer();
-  dt2.items.add(file);
-  inp.files = dt2.files;
-  uploadFile(type, inp);
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  inp.files = dt.files;
+  loadPreview(type, inp);
 }
 
-async function uploadFile(type, input) {
+async function loadPreview(type, input) {
   const file = input.files[0];
   if (!file) return;
 
-  const resultEl = document.getElementById(type + '-result');
-  resultEl.style.display = '';
-  resultEl.innerHTML = '<div class="d-flex align-items-center gap-2 text-muted"><div class="spinner-border spinner-border-sm"></div> Uploading <strong>' + file.name + '</strong>…</div>';
+  _files[type] = file;
+
+  const previewEl = document.getElementById(type + '-preview');
+  const resultEl  = document.getElementById(type + '-result');
+  resultEl.style.display = 'none';
+  resultEl.innerHTML = '';
+  previewEl.style.display = '';
+  previewEl.innerHTML =
+    '<div class="d-flex align-items-center gap-2 text-muted">' +
+    '<div class="spinner-border spinner-border-sm"></div> Reading <strong>' + esc(file.name) + '</strong>…</div>';
 
   const formData = new FormData();
   formData.append('file', file);
 
   try {
-    const resp = await fetch('/import/' + type, {
-      method: 'POST',
-      body: formData,
-    });
+    const resp = await fetch('/import/' + type + '/preview', { method: 'POST', body: formData });
     const data = await resp.json();
+    if (data.error) {
+      previewEl.innerHTML = '<div class="alert alert-danger mb-0">' + esc(data.error) + '</div>';
+      return;
+    }
+    _showPreview(type, data, file.name);
+  } catch (e) {
+    previewEl.innerHTML = '<div class="alert alert-danger mb-0">Could not read file: ' + esc(e.message) + '</div>';
+  }
+  input.value = '';
+}
+
+function _showPreview(type, data, filename) {
+  const previewEl = document.getElementById(type + '-preview');
+  const { columns, rows, total } = data;
+
+  let html = '<div class="d-flex justify-content-between align-items-center mb-2">';
+  html += '<span class="fw-semibold" style="font-size:13px"><i class="bi bi-file-earmark-check me-1" style="color:#16a34a"></i>' + esc(filename) + '</span>';
+  html += '<span class="text-muted small">' + total + ' row' + (total !== 1 ? 's' : '') + ' total</span>';
+  html += '</div>';
+
+  // Preview table
+  if (rows.length) {
+    html += '<p class="text-muted small mb-1">Preview (first ' + rows.length + ' rows):</p>';
+    html += '<div class="preview-table-wrap mb-3"><table class="table table-sm table-bordered preview-table">';
+    html += '<thead><tr>' + columns.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr></thead>';
+    html += '<tbody>';
+    rows.forEach(row => {
+      html += '<tr>' + columns.map(c => '<td title="' + esc(row[c] || '') + '">' + esc(row[c] || '') + '</td>').join('') + '</tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Confirm button
+  html += '<div class="d-flex gap-2">';
+  html += '<button class="btn btn-success btn-sm" onclick="confirmImport(\'' + type + '\')">';
+  html += '<i class="bi bi-cloud-upload"></i> Import all ' + total + ' rows</button>';
+  html += '<button class="btn btn-outline-secondary btn-sm" onclick="cancelPreview(\'' + type + '\')">';
+  html += '<i class="bi bi-x-lg"></i> Cancel</button>';
+  html += '</div>';
+
+  previewEl.style.display = '';
+  previewEl.innerHTML = html;
+}
+
+async function confirmImport(type) {
+  const file = _files[type];
+  if (!file) return;
+
+  const previewEl = document.getElementById(type + '-preview');
+  const resultEl  = document.getElementById(type + '-result');
+
+  previewEl.innerHTML =
+    '<div class="d-flex align-items-center gap-2 text-muted">' +
+    '<div class="spinner-border spinner-border-sm"></div> Importing…</div>';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const resp = await fetch('/import/' + type, { method: 'POST', body: formData });
+    const data = await resp.json();
+    previewEl.style.display = 'none';
+    previewEl.innerHTML = '';
     _showResult(type, data);
   } catch (e) {
-    resultEl.innerHTML = '<div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle me-1"></i>Upload failed: ' + e.message + '</div>';
+    previewEl.style.display = 'none';
+    resultEl.style.display = '';
+    resultEl.innerHTML = '<div class="alert alert-danger mb-0">Import failed: ' + esc(e.message) + '</div>';
   }
-  // Reset file input so the same file can be re-uploaded if needed
-  input.value = '';
+  delete _files[type];
+}
+
+function cancelPreview(type) {
+  const previewEl = document.getElementById(type + '-preview');
+  previewEl.style.display = 'none';
+  previewEl.innerHTML = '';
+  delete _files[type];
 }
 
 function _showResult(type, data) {
   const resultEl = document.getElementById(type + '-result');
-  const ok  = data.imported || 0;
-  const sk  = data.skipped  || 0;
-  const errs = data.errors  || [];
+  const ok   = data.imported || 0;
+  const sk   = data.skipped  || 0;
+  const errs = data.errors   || [];
 
   let html = '<div class="alert alert-' + (ok > 0 ? 'success' : 'warning') + ' mb-0">';
   html += '<i class="bi bi-check2-circle me-1"></i>';
   html += '<strong>' + ok + ' imported</strong>';
-  if (sk)  html += ', <span class="text-muted">' + sk + ' skipped (duplicates)</span>';
+  if (sk) html += ' &nbsp;·&nbsp; <span class="text-muted">' + sk + ' skipped (duplicates)</span>';
   html += '</div>';
 
   if (errs.length) {
     html += '<div class="alert alert-danger mt-2 mb-0" style="font-size:12px">';
     html += '<strong>Errors:</strong><ul class="mb-0 mt-1 ps-3">';
-    errs.slice(0, 10).forEach(e => { html += '<li>' + e + '</li>'; });
+    errs.slice(0, 10).forEach(e => { html += '<li>' + esc(e) + '</li>'; });
     if (errs.length > 10) html += '<li>…and ' + (errs.length - 10) + ' more</li>';
     html += '</ul></div>';
   }
+
+  html += '<button class="btn btn-sm btn-outline-secondary mt-2" onclick="resetImport(\'' + type + '\')">'
+        + '<i class="bi bi-arrow-repeat"></i> Import another file</button>';
 
   resultEl.style.display = '';
   resultEl.innerHTML = html;
 }
 
+function resetImport(type) {
+  document.getElementById(type + '-result').style.display = 'none';
+  document.getElementById(type + '-preview').style.display = 'none';
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 // Drag-over highlight
-['products-drop', 'customers-drop'].forEach(id => {
+['products-drop','customers-drop'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
   el.addEventListener('dragenter', () => el.classList.add('dragover'));

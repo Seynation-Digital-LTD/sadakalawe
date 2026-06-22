@@ -1473,6 +1473,71 @@ a { color: inherit; text-decoration: none; }
   .btn-share { font-size: 12px; padding: 7px 8px; }
 }
 
+/* ── More mobile fixes ── */
+@media (max-width: 768px) {
+
+  /* Doc-type tabs: horizontal scroll, no wrap */
+  .doc-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap !important;
+    gap: 6px;
+    padding-bottom: 4px;
+  }
+  .doc-tab { white-space: nowrap; flex-shrink: 0; }
+
+  /* Dashboard low-stock table: scroll */
+  .card-section { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Dashboard alert cards: stack on very narrow */
+  .alert-card { flex-direction: row; }
+
+  /* Dup-card on mobile */
+  .dup-row {
+    grid-template-columns: 1fr auto !important;
+    grid-template-rows: auto auto auto;
+  }
+  .dup-master-pick { grid-column: 2; grid-row: 1; }
+  .dup-info        { grid-column: 1 / -1; grid-row: 2; }
+  .dup-meta        { grid-column: 1; grid-row: 3; text-align: left !important; }
+  .dup-del-pick    { grid-column: 2; grid-row: 3; }
+
+  /* Reports: filter rows wrap */
+  .row.g-3 .col-md-2,
+  .row.g-3 .col-md-3,
+  .row.g-3 .col-md-4 { width: 100%; }
+
+  /* Expenses filter bar */
+  .filter-bar { overflow-x: visible; }
+
+  /* Customer view: doc table scrollable */
+  .customers-doc-list { overflow-x: auto; }
+
+  /* Stock movement table */
+  .movements-table { min-width: 500px; }
+
+  /* Import page: sections stack */
+  .col-lg-6 { width: 100% !important; }
+
+  /* View document: info grid stacks */
+  .doc-preview-info { grid-template-columns: 1fr !important; }
+
+  /* Batch results: stack */
+  .result-grid { grid-template-columns: 1fr !important; }
+
+  /* New document form: step labels */
+  .step-label { font-size: 13px; }
+  .payment-type-toggle { flex-direction: column; gap: 8px; }
+  .payment-opt { width: 100%; justify-content: center; }
+
+  /* Page sub text: truncate */
+  .page-sub { font-size: 12px; }
+
+  /* Button groups in headers: full width */
+  .page-header .d-flex.gap-2 { flex-wrap: wrap; }
+  .page-header .d-flex.gap-2 .btn { flex: 1 1 auto; min-width: 100px; }
+}
+
 /* ── Very small (≤ 400px) ── */
 @media (max-width: 400px) {
   .content-inner { padding: 68px 10px 20px; }

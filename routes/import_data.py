@@ -197,6 +197,37 @@ def import_products():
     return jsonify({'imported': imported, 'skipped': skipped, 'errors': errors})
 
 
+@bp.route('/products/preview', methods=['POST'])
+@login_required
+def preview_products():
+    """Return first 10 rows of the file so the user can verify before importing."""
+    f = request.files.get('file')
+    if not f or not f.filename:
+        return jsonify({'error': 'No file uploaded'}), 400
+    rows, err, fmt = _read_file(f)
+    if err:
+        return jsonify({'error': err}), 400
+    if not rows:
+        return jsonify({'error': 'File appears to be empty'}), 400
+    columns = list(rows[0].keys()) if rows else []
+    return jsonify({'columns': columns, 'rows': rows[:10], 'total': len(rows)})
+
+
+@bp.route('/customers/preview', methods=['POST'])
+@login_required
+def preview_customers():
+    f = request.files.get('file')
+    if not f or not f.filename:
+        return jsonify({'error': 'No file uploaded'}), 400
+    rows, err, fmt = _read_file(f)
+    if err:
+        return jsonify({'error': err}), 400
+    if not rows:
+        return jsonify({'error': 'File appears to be empty'}), 400
+    columns = list(rows[0].keys()) if rows else []
+    return jsonify({'columns': columns, 'rows': rows[:10], 'total': len(rows)})
+
+
 @bp.route('/customers', methods=['POST'])
 @login_required
 def import_customers():

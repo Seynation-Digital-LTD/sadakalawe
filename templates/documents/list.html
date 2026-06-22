@@ -282,6 +282,66 @@
 
 .expand-icon { font-size: 13px; transition: transform .2s; }
 .expand-icon.rotated { transform: rotate(180deg); }
+
+/* ── Mobile: card layout for each sale row ── */
+@media (max-width: 768px) {
+  .sale-row {
+    display: block !important;
+    padding: 11px 13px;
+    position: relative;
+  }
+
+  /* Doc number + badge row */
+  .sale-row__doc {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding-right: 90px;
+    margin-bottom: 3px;
+  }
+
+  /* Date floats top-right */
+  .sale-row__date {
+    position: absolute;
+    top: 11px;
+    right: 13px;
+    font-size: 11px;
+    white-space: nowrap;
+    text-align: right;
+  }
+
+  /* Customer name — one clean line */
+  .sale-row__customer {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 5px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    max-width: calc(100% - 8px);
+  }
+  .sale-row__customer .text-muted { display: none; } /* hide staff on mobile */
+
+  /* Amount + payment on one row */
+  .sale-row__total   { display: inline; font-size: 13px; font-weight: 700; margin-right: 8px; }
+  .sale-row__payment { display: inline; }
+
+  /* Branch: show compact below */
+  .sale-row__branch { display: block; font-size: 11px; margin-top: 3px; }
+
+  /* Actions: right-aligned bottom row */
+  .sale-row__actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    margin-top: 8px;
+  }
+  .sale-row__actions .expand-icon { display: none; }
+
+  /* Child rows: indent slightly */
+  .sale-row--child { padding: 9px 13px 9px 22px; }
+}
 </style>
 
 <script>
