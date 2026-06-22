@@ -85,6 +85,16 @@
         <i class="bi bi-upload"></i> Import Data
       </a>
 
+      <div class="nav-section-label mt-3">Smart Tools</div>
+      <a href="{{ url_for('commissions.index') }}"
+         class="nav-link {% if active == 'commissions' %}active{% endif %}">
+        <i class="bi bi-cash-stack"></i> Commissions
+      </a>
+      <a href="{{ url_for('upgrade.index') }}"
+         class="nav-link {% if active == 'upgrade' %}active{% endif %}">
+        <i class="bi bi-arrow-up-circle"></i> Upgrade Intel
+      </a>
+
       <div class="nav-section-label mt-3">Reports</div>
       <a href="{{ url_for('reports.sales_report') }}"
          class="nav-link {% if active == 'rep_sales' %}active{% endif %}">

@@ -1,0 +1,144 @@
+{% extends 'base.html' %}
+{% set active = 'upgrade' %}
+{% block title %}Upgrade Intelligence{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Upgrade Intelligence</h2>
+    <p class="page-sub">Customers due for an upgrade — ready to be contacted</p>
+  </div>
+</div>
+
+<!-- Settings bar -->
+<div class="card-section mb-3 py-3">
+  <form method="GET" id="filter-form">
+    <div class="row g-2 align-items-end">
+      {% if current_user.is_admin %}
+      <div class="col-md-2">
+        <label class="form-label fw-semibold small mb-1">Branch</label>
+        <select name="branch_id" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">All Branches</option>
+          {% for b in branches %}
+          <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>
+            {{ b.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="col-12 col-md-auto">
+        <label class="form-label fw-semibold small mb-1">Upgrade cycles (months)</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% for cat, default in DEFAULT_CYCLES.items() %}
+          <div class="input-group input-group-sm" style="width:130px">
+            <span class="input-group-text" style="font-size:11px;background:var(--c-surface-low)">{{ cat }}</span>
+            <input type="number" name="cycle_{{ cat }}" value="{{ cycles[cat] }}"
+                   class="form-control" min="1" max="120" style="font-size:12px">
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-primary">
+          <i class="bi bi-funnel-fill"></i> Apply
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{% if not upgrade_list %}
+<div class="card-section text-center py-5 text-muted">
+  <i class="bi bi-emoji-smile" style="font-size:2.5rem;opacity:.3"></i>
+  <p class="mt-2 fw-semibold">No customers due for an upgrade right now.</p>
+  <p class="small">Either no qualifying purchases found, or all customers are within their upgrade cycle.<br>
+  Try reducing the cycle months above.</p>
+</div>
+{% else %}
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <span class="text-muted small">
+    <strong>{{ upgrade_list | length }}</strong> customer{{ 's' if upgrade_list | length != 1 else '' }} ready to contact
+  </span>
+  <button class="btn btn-sm btn-outline-secondary" onclick="copyAllNumbers()">
+    <i class="bi bi-clipboard"></i> Copy all numbers
+  </button>
+</div>
+
+<div class="card-section" style="overflow-x:auto">
+  <table class="table table-hover mb-0">
+    <thead style="background:var(--c-surface-low)">
+      <tr>
+        <th>Customer</th>
+        <th>Phone</th>
+        <th>Last Device</th>
+        <th>Category</th>
+        <th class="text-end">Last Purchase</th>
+        <th class="text-center">Months Since</th>
+        <th class="text-center">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in upgrade_list %}
+      <tr>
+        <td>
+          <a href="{{ url_for('customers.view', customer_id=r.customer_id) }}"
+             class="fw-semibold text-decoration-none">{{ r.customer_name }}</a>
+          <div class="text-muted" style="font-size:11px">{{ r.branch_name }}</div>
+        </td>
+        <td class="text-muted small">{{ r.phone or '—' }}</td>
+        <td style="font-size:13px">{{ r.last_model }}</td>
+        <td>
+          <span class="badge-doctype" style="font-size:11px;background:var(--c-orange-lt);color:var(--c-orange-dk)">
+            {{ r.brand_category }}
+          </span>
+        </td>
+        <td class="text-end text-muted small">{{ r.last_purchase | dt }}</td>
+        <td class="text-center">
+          {% set urgency = r.months_since - r.cycle %}
+          <span class="badge rounded-pill
+            {% if urgency >= 12 %}bg-danger{% elif urgency >= 6 %}bg-warning text-dark{% else %}bg-success{% endif %}"
+            title="{{ r.months_since }} months since purchase (cycle: {{ r.cycle }} months)">
+            {{ r.months_since }}mo
+          </span>
+        </td>
+        <td class="text-center">
+          {% if r.wa_phone %}
+          {% set msg = "Habari " ~ r.customer_name ~ "! 👋\n\nHii ni Sadakalawe Enterprises.\n\nUlinunua " ~ r.last_model ~ " kwetu. Tunao " ~ r.brand_category ~ " mpya zinazo available sasa! Piga simu au uje utembelee.\n\n📞 +255 768 596 006\n🌐 sadakalawe.com\n\nAsante! 🧡" %}
+          <a href="https://wa.me/{{ r.wa_phone }}?text={{ msg | urlencode }}"
+             target="_blank" rel="noopener"
+             class="btn btn-xs" style="background:#25d366;color:#fff;border:none"
+             title="Send WhatsApp to {{ r.customer_name }}">
+            <i class="bi bi-whatsapp"></i> WhatsApp
+          </a>
+          {% else %}
+          <span class="text-muted small">No phone</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function copyAllNumbers() {
+  const numbers = [
+    {% for r in upgrade_list %}
+    {% if r.phone %}"{{ r.phone }}"{% if not loop.last %},{% endif %}{% endif %}
+    {% endfor %}
+  ];
+  const text = numbers.join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target.closest('button');
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check2"></i> Copied!';
+    setTimeout(() => { btn.innerHTML = orig; }, 2000);
+  });
+}
+</script>
+{% endblock %}

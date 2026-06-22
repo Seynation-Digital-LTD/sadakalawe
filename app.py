@@ -76,6 +76,8 @@ def create_app():
     from routes.financing import bp as financing_bp
     from routes.tradeins import bp as tradeins_bp
     from routes.import_data import bp as import_bp
+    from routes.commissions import bp as commissions_bp
+    from routes.upgrade import bp as upgrade_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(customers_bp)
@@ -89,6 +91,8 @@ def create_app():
     app.register_blueprint(financing_bp)
     app.register_blueprint(tradeins_bp)
     app.register_blueprint(import_bp)
+    app.register_blueprint(commissions_bp)
+    app.register_blueprint(upgrade_bp)
 
     @app.template_filter('dt')
     def format_dt(value):

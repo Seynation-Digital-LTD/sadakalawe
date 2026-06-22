@@ -282,6 +282,7 @@ def _run_migrations(db):
         "ALTER TABLE documents ADD COLUMN share_token TEXT",
         "ALTER TABLE products ADD COLUMN image_path TEXT",
         "ALTER TABLE products ADD COLUMN barcode TEXT",
+        "ALTER TABLE users ADD COLUMN commission_rate REAL NOT NULL DEFAULT 0",
     ]
     for sql in migrations:
         try:
