@@ -195,6 +195,22 @@ def _create_tables(db):
             created_at        TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
 
+        CREATE TABLE IF NOT EXISTS device_sales (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id      INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            document_item_id INTEGER REFERENCES document_items(id),
+            customer_id      INTEGER REFERENCES customers(id),
+            product_id       INTEGER REFERENCES products(id),
+            imei             TEXT,
+            imei2            TEXT,
+            serial_number    TEXT,
+            color            TEXT,
+            storage          TEXT,
+            notes            TEXT,
+            created_by       INTEGER REFERENCES users(id),
+            created_at       TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
         CREATE TABLE IF NOT EXISTS financing_plans (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
             plan_number         TEXT NOT NULL UNIQUE,

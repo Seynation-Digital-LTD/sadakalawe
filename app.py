@@ -78,6 +78,7 @@ def create_app():
     from routes.import_data import bp as import_bp
     from routes.commissions import bp as commissions_bp
     from routes.upgrade import bp as upgrade_bp
+    from routes.devices import bp as devices_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(customers_bp)
@@ -93,6 +94,7 @@ def create_app():
     app.register_blueprint(import_bp)
     app.register_blueprint(commissions_bp)
     app.register_blueprint(upgrade_bp)
+    app.register_blueprint(devices_bp)
 
     @app.template_filter('dt')
     def format_dt(value):

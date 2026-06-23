@@ -94,6 +94,10 @@
          class="nav-link {% if active == 'upgrade' %}active{% endif %}">
         <i class="bi bi-arrow-up-circle"></i> Upgrade Intel
       </a>
+      <a href="{{ url_for('devices.index') }}"
+         class="nav-link {% if active == 'devices' %}active{% endif %}">
+        <i class="bi bi-upc-scan"></i> Device Registry
+      </a>
 
       <div class="nav-section-label mt-3">Reports</div>
       <a href="{{ url_for('reports.sales_report') }}"

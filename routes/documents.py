@@ -422,8 +422,12 @@ def view(doc_id):
     if not doc:
         flash('Document not found.', 'danger')
         return redirect(url_for('documents.list'))
-    items = query_db(
-        "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
+    items = query_db("""
+        SELECT di.*, COALESCE(p.brand_category, '') AS brand_category
+        FROM document_items di
+        LEFT JOIN products p ON p.id = di.product_id
+        WHERE di.document_id=? ORDER BY di.id
+    """, (doc_id,))
     payments = query_db(
         "SELECT * FROM payments WHERE document_id=? ORDER BY payment_date DESC", (doc_id,))
     # Sibling docs in the same batch (the other 2 related docs from this sale)

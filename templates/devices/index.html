@@ -1,0 +1,154 @@
+{% extends 'base.html' %}
+{% set active = 'devices' %}
+{% block title %}Device Registry{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Device Registry</h2>
+    <p class="page-sub">Every iPhone, MacBook &amp; device sold — searchable by IMEI, serial, or customer</p>
+  </div>
+</div>
+
+<!-- Search -->
+<div class="card-section mb-3 py-3">
+  <form method="GET">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-5">
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
+          <input type="text" name="q" value="{{ q }}" class="form-control"
+                 placeholder="Search IMEI, serial number, customer name, product, invoice…"
+                 autofocus autocomplete="off">
+        </div>
+      </div>
+      {% if current_user.is_admin %}
+      <div class="col-md-2">
+        <select name="branch_id" class="form-select">
+          <option value="">All Branches</option>
+          {% for b in branches %}
+          <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>{{ b.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="col-auto d-flex gap-1">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-search"></i> Search
+        </button>
+        {% if q or branch_filter %}
+        <a href="{{ url_for('devices.index') }}" class="btn btn-outline-secondary">
+          <i class="bi bi-x-lg"></i>
+        </a>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+</div>
+
+{% if not devices %}
+<div class="card-section text-center py-5 text-muted">
+  <i class="bi bi-upc-scan" style="font-size:2.5rem;opacity:.3"></i>
+  <p class="mt-2 fw-semibold">
+    {% if q %}No devices found for "{{ q }}"{% else %}No devices registered yet{% endif %}
+  </p>
+  <p class="small">Devices are registered from the invoice view page — open any invoice and add the IMEI/serial below the line items.</p>
+</div>
+{% else %}
+<div class="card-section" style="overflow-x:auto">
+  <table class="table table-hover mb-0">
+    <thead style="background:var(--c-surface-low)">
+      <tr>
+        <th>Device / Product</th>
+        <th>IMEI / Serial</th>
+        <th>Customer</th>
+        <th>Invoice</th>
+        <th>Branch</th>
+        <th>Date Sold</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in devices %}
+      <tr>
+        <td>
+          <div class="fw-semibold" style="font-size:13px">{{ d.product_model or '—' }}</div>
+          {% if d.color or d.storage %}
+          <div class="text-muted" style="font-size:11px">
+            {% if d.color %}{{ d.color }}{% endif %}
+            {% if d.color and d.storage %} · {% endif %}
+            {% if d.storage %}{{ d.storage }}{% endif %}
+          </div>
+          {% endif %}
+          {% if d.brand_category %}
+          <span style="font-size:10px;background:var(--c-orange-lt);color:var(--c-orange-dk);padding:1px 6px;border-radius:99px">{{ d.brand_category }}</span>
+          {% endif %}
+        </td>
+        <td style="font-family:monospace;font-size:12px">
+          {% if d.imei %}
+          <div><span class="text-muted" style="font-size:10px">IMEI1</span> {{ d.imei }}</div>
+          {% endif %}
+          {% if d.imei2 %}
+          <div><span class="text-muted" style="font-size:10px">IMEI2</span> {{ d.imei2 }}</div>
+          {% endif %}
+          {% if d.serial_number %}
+          <div><span class="text-muted" style="font-size:10px">S/N</span> {{ d.serial_number }}</div>
+          {% endif %}
+        </td>
+        <td>
+          {% if d.customer_name %}
+          <a href="{{ url_for('customers.view', customer_id=d.customer_id) }}"
+             class="fw-semibold text-decoration-none" style="font-size:13px">{{ d.customer_name }}</a>
+          {% if d.customer_phone %}<div class="text-muted" style="font-size:11px">{{ d.customer_phone }}</div>{% endif %}
+          {% else %}
+          <span class="text-muted">Walk-in</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="{{ url_for('documents.view', doc_id=d.document_id) }}"
+             class="text-decoration-none" style="font-size:13px">{{ d.doc_number }}</a>
+        </td>
+        <td class="text-muted small">{{ d.branch_name }}</td>
+        <td class="text-muted small">{{ d.sale_date | dt }}</td>
+        <td>
+          <div class="d-flex gap-1">
+            <a href="{{ url_for('documents.view', doc_id=d.document_id) }}"
+               class="btn btn-xs btn-outline-secondary" title="View Invoice">
+              <i class="bi bi-receipt"></i>
+            </a>
+            {% if current_user.is_admin %}
+            <button class="btn btn-xs btn-outline-danger"
+                    onclick="deleteDevice({{ d.id }}, this)"
+                    title="Remove from registry">
+              <i class="bi bi-trash"></i>
+            </button>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if devices | length == 200 %}
+  <p class="text-muted small text-center py-2">Showing first 200 results. Refine your search to narrow down.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function deleteDevice(id, btn) {
+  if (!confirm('Remove this device from the registry?')) return;
+  btn.disabled = true;
+  const resp = await fetch('/devices/' + id + '/delete', { method: 'POST' });
+  if (resp.ok) {
+    btn.closest('tr').style.opacity = '0.4';
+    setTimeout(() => btn.closest('tr').remove(), 400);
+  } else {
+    btn.disabled = false;
+    alert('Could not remove device. Try again.');
+  }
+}
+</script>
+{% endblock %}

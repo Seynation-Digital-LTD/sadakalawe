@@ -450,9 +450,43 @@
         {% endif %}
         <td class="text-end fw-semibold">TZS {{ "{:,.0f}".format(item.line_total or 0) }}</td>
       </tr>
+      {% if doc.doc_type == 'invoice' and item.product_id and item.brand_category in ('iPhone','MacBook','iPad') %}
+      <tr class="device-reg-row" data-item-id="{{ item.id }}" data-product-id="{{ item.product_id }}"
+          data-product-name="{{ item.description }}" style="background:#fffbeb">
+        <td></td>
+        <td colspan="{{ 4 if has_discount else 3 }}" style="padding:4px 12px">
+          <span class="text-muted" style="font-size:11px">
+            <i class="bi bi-upc-scan me-1" style="color:var(--c-orange)"></i>
+            <a href="#device-registry-section"
+               onclick="openDeviceModal({{ item.id }}, {{ item.product_id }}, '{{ item.description | e }}')"
+               class="text-decoration-none" style="color:var(--c-orange);font-size:11px">
+              Register IMEI / Serial →
+            </a>
+          </span>
+        </td>
+        <td></td>
+      </tr>
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>
+
+  <!-- Device Registry (invoices only) -->
+  {% if doc.doc_type == 'invoice' %}
+  <div class="doc-notes" style="padding:0" id="device-registry-section">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--c-border,#e1bfb3);display:flex;justify-content:space-between;align-items:center">
+      <strong><i class="bi bi-upc-scan me-1" style="color:var(--c-orange)"></i> Device Registry</strong>
+      <button type="button" class="btn btn-sm btn-outline-primary" onclick="openDeviceModal(null, null, '')">
+        <i class="bi bi-plus-lg"></i> Register Device
+      </button>
+    </div>
+    <div id="device-list" style="padding:0 20px">
+      <p class="text-muted small py-3 mb-0" id="device-empty-msg">
+        Loading registered devices…
+      </p>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- Totals -->
   <div class="doc-totals">
@@ -552,6 +586,78 @@
 </div>
 {% endblock %}
 
+<!-- Device Register Modal -->
+{% if doc.doc_type == 'invoice' %}
+<div class="modal fade" id="deviceModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="border-bottom:3px solid var(--c-orange)">
+        <h5 class="modal-title fw-bold">
+          <i class="bi bi-upc-scan me-2" style="color:var(--c-orange)"></i>Register Device
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">
+          Device: <strong id="dm-product-name"></strong>
+        </p>
+        <input type="hidden" id="dm-item-id">
+        <input type="hidden" id="dm-product-id">
+
+        <div class="row g-2 mb-2">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">IMEI 1</label>
+            <input type="text" id="dm-imei" class="form-control form-control-sm"
+                   placeholder="e.g. 352099001761481" maxlength="20"
+                   style="font-family:monospace">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">IMEI 2 <span class="text-muted">(dual SIM)</span></label>
+            <input type="text" id="dm-imei2" class="form-control form-control-sm"
+                   placeholder="Optional" maxlength="20"
+                   style="font-family:monospace">
+          </div>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label fw-semibold small">Serial Number</label>
+          <input type="text" id="dm-serial" class="form-control form-control-sm"
+                 placeholder="MacBook / iPad serial e.g. C02XG0JFJGH5"
+                 style="font-family:monospace">
+        </div>
+
+        <div class="row g-2 mb-2">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Color</label>
+            <input type="text" id="dm-color" class="form-control form-control-sm"
+                   placeholder="e.g. Midnight, Natural Titanium">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Storage</label>
+            <input type="text" id="dm-storage" class="form-control form-control-sm"
+                   placeholder="e.g. 256GB, 512GB">
+          </div>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label fw-semibold small">Notes</label>
+          <input type="text" id="dm-notes" class="form-control form-control-sm"
+                 placeholder="Optional — condition notes, accessories included, etc.">
+        </div>
+
+        <div class="alert alert-danger py-2 mt-2" id="dm-error" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="dm-save-btn" class="btn btn-primary px-4">
+          <i class="bi bi-check-lg"></i> Save
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% block scripts %}
 <script>
 (function () {
@@ -569,6 +675,116 @@
     });
   });
 })();
+
+// ── Device Registry ────────────────────────────────────────────
+const DOC_ID = {{ doc.id }};
+
+(function () {
+  if (!document.getElementById('device-registry-section')) return;
+
+  // Load existing devices on page load
+  fetch('/devices/by-doc/' + DOC_ID)
+    .then(r => r.json())
+    .then(renderDevices)
+    .catch(() => {
+      document.getElementById('device-empty-msg').textContent =
+        'No devices registered yet. Click "Register Device" to add one.';
+    });
+})();
+
+function renderDevices(data) {
+  const el   = document.getElementById('device-list');
+  const empty = document.getElementById('device-empty-msg');
+  if (!data.length) {
+    el.innerHTML = '<p class="text-muted small py-3 mb-0">No devices registered yet. Click "Register Device" to add one.</p>';
+    return;
+  }
+  let html = '<table class="table table-sm mb-0" style="font-size:13px"><thead style="background:var(--c-surface-low)"><tr><th>Product</th><th>IMEI 1</th><th>IMEI 2</th><th>Serial</th><th>Color</th><th>Storage</th><th></th></tr></thead><tbody>';
+  data.forEach(d => {
+    html += `<tr>
+      <td class="fw-semibold">${esc(d.product_model || '—')}</td>
+      <td style="font-family:monospace">${esc(d.imei || '—')}</td>
+      <td style="font-family:monospace">${esc(d.imei2 || '—')}</td>
+      <td style="font-family:monospace">${esc(d.serial_number || '—')}</td>
+      <td>${esc(d.color || '—')}</td>
+      <td>${esc(d.storage || '—')}</td>
+      <td><button class="btn btn-ghost btn-sm py-0 px-1 text-danger" onclick="deleteDevice(${d.id})" title="Remove"><i class="bi bi-trash"></i></button></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function openDeviceModal(itemId, productId, productName) {
+  document.getElementById('dm-item-id').value    = itemId || '';
+  document.getElementById('dm-product-id').value = productId || '';
+  document.getElementById('dm-product-name').textContent = productName || 'This document';
+  document.getElementById('dm-imei').value   = '';
+  document.getElementById('dm-imei2').value  = '';
+  document.getElementById('dm-serial').value = '';
+  document.getElementById('dm-color').value  = '';
+  document.getElementById('dm-storage').value = '';
+  document.getElementById('dm-notes').value  = '';
+  document.getElementById('dm-error').style.display = 'none';
+  new bootstrap.Modal(document.getElementById('deviceModal')).show();
+  setTimeout(() => document.getElementById('dm-imei').focus(), 300);
+}
+
+document.getElementById('dm-save-btn') && document.getElementById('dm-save-btn').addEventListener('click', async function () {
+  const btn    = this;
+  const errBox = document.getElementById('dm-error');
+  errBox.style.display = 'none';
+
+  const payload = {
+    document_id:      DOC_ID,
+    document_item_id: document.getElementById('dm-item-id').value || null,
+    product_id:       document.getElementById('dm-product-id').value || null,
+    imei:             document.getElementById('dm-imei').value.trim(),
+    imei2:            document.getElementById('dm-imei2').value.trim(),
+    serial_number:    document.getElementById('dm-serial').value.trim(),
+    color:            document.getElementById('dm-color').value.trim(),
+    storage:          document.getElementById('dm-storage').value.trim(),
+    notes:            document.getElementById('dm-notes').value.trim(),
+  };
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving…';
+
+  try {
+    const resp = await fetch('/devices/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      errBox.textContent = data.error || 'Error saving. Try again.';
+      errBox.style.display = '';
+      return;
+    }
+    bootstrap.Modal.getInstance(document.getElementById('deviceModal')).hide();
+    // Reload device list
+    fetch('/devices/by-doc/' + DOC_ID).then(r => r.json()).then(renderDevices);
+  } catch (e) {
+    errBox.textContent = 'Network error. Try again.';
+    errBox.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check-lg"></i> Save';
+  }
+});
+
+async function deleteDevice(id) {
+  if (!confirm('Remove this device from the registry?')) return;
+  const resp = await fetch('/devices/' + id + '/delete', { method: 'POST' });
+  if (resp.ok) {
+    fetch('/devices/by-doc/' + DOC_ID).then(r => r.json()).then(renderDevices);
+  }
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
 // WhatsApp PDF share
 const WA_PDF_URL      = "{{ url_for('documents.download_pdf', doc_id=doc.id) }}";
