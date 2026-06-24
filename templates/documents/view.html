@@ -363,7 +363,17 @@
         {{ 'DELIVER TO' if doc.doc_type == 'delivery_note' else 'BILL TO' }}
       </div>
       {% if doc.customer_name %}
-      <div class="fw-bold fs-5">{{ doc.customer_name }}</div>
+      {% if doc.customer_id %}{% set _tier = get_tier(0) %}{% endif %}
+      <div class="fw-bold fs-5">
+        {{ doc.customer_name }}
+        {% if doc.customer_lifetime_spend is defined and doc.customer_lifetime_spend %}
+        {% set _ct = get_tier(doc.customer_lifetime_spend) %}
+        <span style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:99px;
+                     background:{{ _ct.bg }};color:{{ _ct.color }};vertical-align:middle">
+          {{ _ct.icon }} {{ _ct.name }}
+        </span>
+        {% endif %}
+      </div>
       {% if doc.customer_phone %}<div class="text-muted">Tel: {{ doc.customer_phone }}</div>{% endif %}
       {% if doc.customer_email %}<div class="text-muted">{{ doc.customer_email }}</div>{% endif %}
       {% if doc.customer_tin %}<div class="text-muted">TIN: {{ doc.customer_tin }}</div>{% endif %}

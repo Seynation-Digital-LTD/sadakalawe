@@ -54,6 +54,14 @@ DOC_TYPE_LABELS = {
 
 BRAND_CATEGORIES = ['MacBook', 'iPhone', 'Anker', 'JBL', 'Accessories', 'Other']
 
+# Customer VIP tiers — ordered highest to lowest
+VIP_TIERS = [
+    {'name': 'VIP',    'min_spend': 20_000_000, 'color': '#7c3aed', 'bg': '#ede9fe', 'icon': '👑'},
+    {'name': 'Gold',   'min_spend':  5_000_000, 'color': '#b45309', 'bg': '#fef3c7', 'icon': '⭐'},
+    {'name': 'Silver', 'min_spend':  1_000_000, 'color': '#475569', 'bg': '#f1f5f9', 'icon': '🥈'},
+    {'name': 'Bronze', 'min_spend':          0, 'color': '#92400e', 'bg': '#fdf4dc', 'icon': '🥉'},
+]
+
 SECRET_KEY = os.environ.get('SECRET_KEY', 'sadakalawe-2026-change-in-production-xK9mP2qR')
 DATABASE = os.path.join(BASE_DIR, 'data', 'sadakalawe.db')
 BACKUP_DIR = os.path.join(BASE_DIR, 'backups')

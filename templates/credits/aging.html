@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% set active = 'credits' %}
+{% block title %}Debt Aging{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Debt Aging Report</h2>
+    <p class="page-sub">Outstanding balances bucketed by how overdue they are</p>
+  </div>
+  <a href="{{ url_for('credits.list') }}" class="btn btn-ghost">
+    <i class="bi bi-arrow-left"></i> All Credits
+  </a>
+</div>
+
+<!-- Branch filter -->
+{% if current_user.is_admin %}
+<form method="GET" class="mb-3">
+  <div class="d-flex gap-2 align-items-center">
+    <select name="branch_id" class="form-select form-select-sm" style="width:auto"
+            onchange="this.form.submit()">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+      <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>
+        {{ b.name }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+</form>
+{% endif %}
+
+<!-- Summary cards -->
+<div class="row g-3 mb-4">
+  {% for bucket in buckets %}
+  <div class="col-6 col-md">
+    <div class="card-section text-center py-3"
+         style="border-top:3px solid {{ bucket.color }}">
+      <div class="text-muted small mb-1">{{ bucket.label }}</div>
+      <div style="font-size:20px;font-weight:800;color:{{ bucket.color }}">
+        {{ bucket.rows | length }}
+      </div>
+      <div class="text-muted" style="font-size:11px">
+        TZS {{ "{:,.0f}".format(bucket.total) }}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  <div class="col-6 col-md">
+    <div class="card-section text-center py-3" style="border-top:3px solid var(--c-orange)">
+      <div class="text-muted small mb-1">Total Outstanding</div>
+      <div style="font-size:20px;font-weight:800;color:var(--c-orange)">
+        TZS {{ "{:,.0f}".format(grand_total) }}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Aging buckets -->
+{% for bucket in buckets %}
+{% if bucket.rows %}
+<div class="card-section mb-4" style="border-left:4px solid {{ bucket.color }}">
+  <div style="padding:12px 20px;border-bottom:1px solid var(--c-border);
+              display:flex;justify-content:space-between;align-items:center">
+    <strong style="color:{{ bucket.color }}">
+      {{ bucket.label }}
+      <span class="ms-2 badge rounded-pill" style="background:{{ bucket.bg }};color:{{ bucket.color }};font-size:11px">
+        {{ bucket.rows | length }} debt{{ 's' if bucket.rows | length != 1 else '' }}
+      </span>
+    </strong>
+    <span class="fw-bold" style="color:{{ bucket.color }}">
+      TZS {{ "{:,.0f}".format(bucket.total) }}
+    </span>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="table table-hover mb-0" style="font-size:13px">
+      <thead style="background:var(--c-surface-low)">
+        <tr>
+          <th>Customer</th>
+          <th>Phone</th>
+          <th>Invoice</th>
+          <th class="text-end">Total</th>
+          <th class="text-end">Balance</th>
+          <th>Due Date</th>
+          <th class="text-center">Days</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in bucket.rows %}
+        <tr>
+          <td>
+            {% if r.customer_id %}
+            <a href="{{ url_for('customers.view', customer_id=r.customer_id) }}"
+               class="fw-semibold text-decoration-none">{{ r.customer_name or 'Walk-in' }}</a>
+            {% else %}
+            <span class="fw-semibold">{{ r.customer_name or 'Walk-in' }}</span>
+            {% endif %}
+            <div class="text-muted" style="font-size:11px">{{ r.branch_name }}</div>
+          </td>
+          <td class="text-muted">{{ r.customer_phone or '—' }}</td>
+          <td>
+            <a href="{{ url_for('documents.view', doc_id=r.id) }}"
+               class="text-decoration-none">{{ r.doc_number }}</a>
+          </td>
+          <td class="text-end text-muted">TZS {{ "{:,.0f}".format(r.total or 0) }}</td>
+          <td class="text-end fw-bold" style="color:{{ bucket.color }}">
+            TZS {{ "{:,.0f}".format(r.balance or 0) }}
+          </td>
+          <td class="text-muted">{{ r.credit_due_date or '—' }}</td>
+          <td class="text-center">
+            {% if r.days_overdue > 0 %}
+            <span class="badge rounded-pill" style="background:{{ bucket.bg }};color:{{ bucket.color }}">
+              {{ r.days_overdue }}d
+            </span>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.customer_phone %}
+            <a href="{{ wa_url(r, bucket.key) }}" target="_blank" rel="noopener"
+               class="btn btn-xs" style="background:#25d366;color:#fff;border:none"
+               title="Send WhatsApp reminder">
+              <i class="bi bi-whatsapp"></i>
+            </a>
+            {% endif %}
+            <a href="{{ url_for('credits.detail', doc_id=r.id) }}"
+               class="btn btn-xs btn-outline-secondary ms-1" title="Record Payment">
+              <i class="bi bi-cash-coin"></i>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+
+{% set total_rows = buckets | sum(attribute='rows') | list | length %}
+{% if total_rows == 0 %}
+<div class="card-section text-center py-5 text-muted">
+  <i class="bi bi-emoji-smile" style="font-size:2.5rem;opacity:.3"></i>
+  <p class="mt-2 fw-semibold">No outstanding debts right now. 🎉</p>
+</div>
+{% endif %}
+{% endblock %}

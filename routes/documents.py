@@ -62,7 +62,11 @@ def _fetch_doc_full(doc_id):
                COALESCE(c.name, d.walkin_name) AS customer_name,
                c.phone AS customer_phone,
                c.email AS customer_email, c.tin AS customer_tin,
-               c.address AS customer_address, u.full_name AS staff_name
+               c.address AS customer_address, u.full_name AS staff_name,
+               COALESCE((
+                   SELECT SUM(d2.total) FROM documents d2
+                   WHERE d2.customer_id = d.customer_id AND d2.doc_type='invoice'
+               ), 0) AS customer_lifetime_spend
         FROM documents d
         JOIN branches b ON d.branch_id = b.id
         LEFT JOIN customers c ON d.customer_id = c.id

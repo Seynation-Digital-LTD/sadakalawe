@@ -3,10 +3,24 @@
 {% block title %}{{ customer.name }}{% endblock %}
 
 {% block content %}
+{% set tier = get_tier(customer.lifetime_spend) %}
 <div class="page-header">
   <div>
-    <h2 class="page-title">{{ customer.name }}</h2>
-    <p class="page-sub">Customer Profile</p>
+    <h2 class="page-title">
+      {{ customer.name }}
+      {% if customer.lifetime_spend > 0 %}
+      <span style="font-size:14px;font-weight:700;padding:3px 10px;border-radius:99px;
+                   background:{{ tier.bg }};color:{{ tier.color }};vertical-align:middle">
+        {{ tier.icon }} {{ tier.name }}
+      </span>
+      {% endif %}
+    </h2>
+    <p class="page-sub">Customer Profile
+      {% if customer.lifetime_spend > 0 %}
+      &nbsp;·&nbsp; Lifetime spend: <strong>TZS {{ "{:,.0f}".format(customer.lifetime_spend) }}</strong>
+      &nbsp;·&nbsp; {{ customer.invoice_count }} invoice{{ 's' if customer.invoice_count != 1 else '' }}
+      {% endif %}
+    </p>
   </div>
   <div class="d-flex gap-2">
     <a href="{{ url_for('documents.new') }}" class="btn btn-primary">

@@ -629,3 +629,91 @@ def pnl_report():
                            suggestions=suggestions,
                            branches=branches, branch_filter=branch_id,
                            date_from=date_from, date_to=date_to)
+
+
+@bp.route('/stock-performance')
+@login_required
+@perm_required('view_reports')
+def stock_performance():
+    branch_id   = request.args.get('branch_id', '')
+    idle_days   = int(request.args.get('idle_days', 45))
+    period      = request.args.get('period', 'month')  # month / quarter / year / all
+    sort_by     = request.args.get('sort_by', 'revenue')  # revenue / qty
+
+    # Date range for top sellers
+    today = date.today()
+    if period == 'month':
+        date_from = today.replace(day=1).isoformat()
+    elif period == 'quarter':
+        q_start_month = ((today.month - 1) // 3) * 3 + 1
+        date_from = today.replace(month=q_start_month, day=1).isoformat()
+    elif period == 'year':
+        date_from = today.replace(month=1, day=1).isoformat()
+    else:
+        date_from = '2020-01-01'
+
+    branch_clause = ""
+    branch_args   = []
+    if not current_user.is_admin and current_user.branch_id:
+        branch_clause = " AND d.branch_id=?"
+        branch_args   = [current_user.branch_id]
+    elif branch_id:
+        branch_clause = " AND d.branch_id=?"
+        branch_args   = [branch_id]
+
+    # ── Top sellers ──────────────────────────────────────────────
+    order_col = "revenue DESC" if sort_by == 'revenue' else "units_sold DESC"
+    top_sellers = query_db(f"""
+        SELECT p.id, p.model, p.brand_category,
+               pc.name  AS category_name,
+               ps.name  AS subcategory_name,
+               SUM(di.quantity)                                    AS units_sold,
+               SUM(di.quantity * di.unit_price * (1 - COALESCE(di.discount_pct,0)/100.0))
+                                                                   AS revenue,
+               p.cost_price,
+               SUM(di.quantity) * p.cost_price                    AS cogs,
+               p.stock_count
+        FROM document_items di
+        JOIN documents  d  ON d.id  = di.document_id
+        JOIN products   p  ON p.id  = di.product_id
+        LEFT JOIN product_categories   pc ON pc.id = p.category_id
+        LEFT JOIN product_subcategories ps ON ps.id = p.subcategory_id
+        WHERE d.doc_type='invoice'
+          AND DATE(d.created_at) >= ?
+          {branch_clause}
+          AND di.product_id IS NOT NULL
+        GROUP BY di.product_id
+        ORDER BY {order_col}
+        LIMIT 30
+    """, [date_from] + branch_args)
+
+    # ── Slow-moving stock ─────────────────────────────────────────
+    slow = query_db(f"""
+        SELECT p.id, p.model, p.brand_category, p.stock_count, p.cost_price,
+               pc.name AS category_name,
+               p.stock_count * p.cost_price AS stock_value,
+               MAX(d.created_at)            AS last_sold_at,
+               CASE
+                 WHEN MAX(d.created_at) IS NULL THEN 9999
+                 ELSE CAST(julianday('now') - julianday(MAX(d.created_at)) AS INTEGER)
+               END AS days_idle
+        FROM products p
+        LEFT JOIN product_categories pc ON pc.id = p.category_id
+        LEFT JOIN document_items di ON di.product_id = p.id
+        LEFT JOIN documents d ON d.id = di.document_id
+                             AND d.doc_type='invoice'
+                             {branch_clause.replace('AND d.branch_id', 'AND d.branch_id')}
+        WHERE p.is_active=1
+          AND p.stock_count > 0
+        GROUP BY p.id
+        HAVING days_idle >= ?
+        ORDER BY days_idle DESC
+        LIMIT 50
+    """, branch_args + [idle_days])
+
+    branches = query_db("SELECT * FROM branches ORDER BY name")
+    return render_template('reports/stock_performance.html',
+                           top_sellers=top_sellers, slow=slow,
+                           branches=branches, branch_filter=branch_id,
+                           idle_days=idle_days, period=period, sort_by=sort_by,
+                           date_from=date_from, today=today.isoformat())

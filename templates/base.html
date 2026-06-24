@@ -112,6 +112,14 @@
          class="nav-link {% if active == 'rep_stock' %}active{% endif %}">
         <i class="bi bi-clipboard-data"></i> Stock Report
       </a>
+      <a href="{{ url_for('reports.stock_performance') }}"
+         class="nav-link {% if active == 'rep_stock_perf' %}active{% endif %}">
+        <i class="bi bi-trophy"></i> Stock Performance
+      </a>
+      <a href="{{ url_for('credits.aging') }}"
+         class="nav-link {% if active == 'debt_aging' %}active{% endif %}">
+        <i class="bi bi-clock-history"></i> Debt Aging
+      </a>
       <a href="{{ url_for('reports.pnl_report') }}"
          class="nav-link {% if active == 'rep_pnl' %}active{% endif %}">
         <i class="bi bi-graph-up-arrow"></i> P&amp;L

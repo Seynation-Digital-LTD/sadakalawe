@@ -15,7 +15,11 @@ def list():
     branch_filter = request.args.get('branch_id', '')
 
     sql = """
-        SELECT c.*, b.name as branch_name
+        SELECT c.*, b.name as branch_name,
+               COALESCE((
+                   SELECT SUM(d.total) FROM documents d
+                   WHERE d.customer_id = c.id AND d.doc_type='invoice'
+               ), 0) AS lifetime_spend
         FROM customers c LEFT JOIN branches b ON c.branch_id = b.id
         WHERE 1=1
     """
@@ -90,7 +94,13 @@ def new():
 @login_required
 def view(customer_id):
     customer = query_db("""
-        SELECT c.*, b.name as branch_name
+        SELECT c.*, b.name as branch_name,
+               COALESCE((
+                   SELECT SUM(d.total) FROM documents d
+                   WHERE d.customer_id = c.id AND d.doc_type='invoice'
+               ), 0) AS lifetime_spend,
+               (SELECT COUNT(*) FROM documents d
+                WHERE d.customer_id = c.id AND d.doc_type='invoice') AS invoice_count
         FROM customers c LEFT JOIN branches b ON c.branch_id = b.id
         WHERE c.id=?
     """, (customer_id,), one=True)

@@ -55,11 +55,18 @@
     </thead>
     <tbody>
       {% for c in customers %}
+      {% set tier = get_tier(c.lifetime_spend) %}
       <tr>
         <td>
           <a href="{{ url_for('customers.view', customer_id=c.id) }}" class="fw-semibold text-dark">
             {{ c.name }}
           </a>
+          {% if c.lifetime_spend > 0 %}
+          <span class="ms-1" style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;
+                background:{{ tier.bg }};color:{{ tier.color }}">
+            {{ tier.icon }} {{ tier.name }}
+          </span>
+          {% endif %}
         </td>
         <td>{{ c.phone or '—' }}</td>
         <td>{{ c.email or '—' }}</td>

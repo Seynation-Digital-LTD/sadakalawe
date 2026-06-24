@@ -251,3 +251,99 @@ def statement_pdf(customer_id):
     fname = f"Statement_{customer['name'].replace(' ', '_')[:30]}_{date.today().isoformat()}.pdf"
     return send_file(buf, mimetype='application/pdf',
                      as_attachment=False, download_name=fname)
+
+
+@bp.route('/aging')
+@login_required
+def aging():
+    """Debt aging report — outstanding balances bucketed by days overdue."""
+    from urllib.parse import quote as urlquote
+    import re
+
+    branch_filter = request.args.get('branch_id', '')
+    today_str = date.today().isoformat()
+
+    sql = """
+        SELECT d.id, d.doc_number, d.total, d.amount_paid,
+               d.total - d.amount_paid AS balance,
+               d.credit_due_date, d.payment_status, d.created_at,
+               b.name AS branch_name, b.id AS branch_id,
+               COALESCE(c.name, d.walkin_name) AS customer_name,
+               c.phone AS customer_phone, c.id AS customer_id,
+               CASE
+                 WHEN d.credit_due_date IS NULL OR d.credit_due_date = '' THEN 0
+                 ELSE CAST(julianday('now') - julianday(d.credit_due_date) AS INTEGER)
+               END AS days_overdue
+        FROM documents d
+        JOIN branches b ON d.branch_id = b.id
+        LEFT JOIN customers c ON d.customer_id = c.id
+        WHERE d.doc_type = 'invoice'
+          AND d.payment_status IN ('credit', 'partial')
+    """
+    args = []
+    if not current_user.is_admin and current_user.branch_id:
+        sql += " AND d.branch_id=?"
+        args.append(current_user.branch_id)
+    elif branch_filter:
+        sql += " AND d.branch_id=?"
+        args.append(branch_filter)
+
+    sql += " ORDER BY days_overdue DESC, balance DESC"
+    rows = query_db(sql, args)
+
+    # Bucket into aging groups
+    buckets = [
+        {'label': 'Not Yet Due',    'key': 'current', 'min': None, 'max': 0,   'color': '#16a34a', 'bg': '#dcfce7'},
+        {'label': '1–30 Days',      'key': 'd30',     'min': 1,    'max': 30,  'color': '#d97706', 'bg': '#fef3c7'},
+        {'label': '31–60 Days',     'key': 'd60',     'min': 31,   'max': 60,  'color': '#ea580c', 'bg': '#fff7ed'},
+        {'label': '61–90 Days',     'key': 'd90',     'min': 61,   'max': 90,  'color': '#dc2626', 'bg': '#fef2f2'},
+        {'label': '90+ Days',       'key': 'd90p',    'min': 91,   'max': None,'color': '#7f1d1d', 'bg': '#fce7f3'},
+    ]
+
+    for b in buckets:
+        b['rows'] = []
+        b['total'] = 0
+
+    for r in rows:
+        days = r['days_overdue']
+        for b in buckets:
+            lo = b['min'] if b['min'] is not None else float('-inf')
+            hi = b['max'] if b['max'] is not None else float('inf')
+            if lo <= days <= hi:
+                b['rows'].append(r)
+                b['total'] += float(r['balance'])
+                break
+
+    # Build WhatsApp URL helper
+    def wa_url(row, bucket_key):
+        phone = row['customer_phone'] or ''
+        p = re.sub(r'[\s\-\(\)+]', '', phone)
+        if p.startswith('0') and len(p) >= 10:
+            p = '255' + p[1:]
+        elif not p.startswith('255'):
+            p = '255' + p
+        name = row['customer_name'] or 'Valued Customer'
+        bal  = f"TZS {float(row['balance']):,.0f}"
+        inv  = row['doc_number']
+        due  = row['credit_due_date'] or 'N/A'
+
+        if bucket_key == 'current':
+            msg = f"Habari {name}! 👋\n\nHii ni ukumbusho wa kirafiki. Malipo ya {bal} kwa {inv} yanakuja hivi karibuni (tarehe: {due}).\n\nAsante! 🙏\nSadakalawe Enterprises\n+255 768 596 006"
+        elif bucket_key == 'd30':
+            msg = f"Habari {name},\n\nTuna deni lako la {bal} ({inv}) ambalo lilipaswa kulipwa {due}.\n\nTafadhali wasiliana nasi leo.\n\nSadakalawe Enterprises\n+255 768 596 006"
+        elif bucket_key == 'd60':
+            msg = f"Habari {name},\n\n⚠️ Deni la {bal} ({inv}) limechelewa zaidi ya mwezi. Tarehe ya mwisho ilikuwa {due}.\n\nTafadhali lipa haraka iwezekanavyo.\n\nSadakalawe Enterprises\n+255 768 596 006"
+        else:
+            msg = f"Habari {name},\n\n🔴 Deni lako la {bal} ({inv}) limechelewa sana. Tarehe ya mwisho ilikuwa {due}.\n\nTunaomba ufike ofisini au uwasiliane nasi ASAP.\n\nSadakalawe Enterprises\n+255 768 596 006"
+
+        if p and len(p) >= 10:
+            return f"https://wa.me/{p}?text={urlquote(msg)}"
+        return f"https://wa.me/?text={urlquote(msg)}"
+
+    branches = query_db("SELECT * FROM branches ORDER BY name")
+    grand_total = sum(float(r['balance']) for r in rows)
+
+    return render_template('credits/aging.html',
+                           buckets=buckets, grand_total=grand_total,
+                           branches=branches, branch_filter=branch_filter,
+                           today=today_str, wa_url=wa_url)

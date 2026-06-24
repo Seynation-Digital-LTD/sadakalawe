@@ -1,0 +1,195 @@
+{% extends 'base.html' %}
+{% set active = 'rep_stock_perf' %}
+{% block title %}Stock Performance{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Stock Performance</h2>
+    <p class="page-sub">Top sellers &amp; slow-moving inventory</p>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card-section mb-3 py-3">
+  <form method="GET">
+    <div class="row g-2 align-items-end flex-wrap">
+      {% if current_user.is_admin %}
+      <div class="col-auto">
+        <label class="form-label fw-semibold small mb-1">Branch</label>
+        <select name="branch_id" class="form-select form-select-sm">
+          <option value="">All Branches</option>
+          {% for b in branches %}
+          <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>
+            {{ b.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="col-auto">
+        <label class="form-label fw-semibold small mb-1">Top sellers period</label>
+        <select name="period" class="form-select form-select-sm">
+          <option value="month"   {% if period=='month'   %}selected{% endif %}>This Month</option>
+          <option value="quarter" {% if period=='quarter' %}selected{% endif %}>This Quarter</option>
+          <option value="year"    {% if period=='year'    %}selected{% endif %}>This Year</option>
+          <option value="all"     {% if period=='all'     %}selected{% endif %}>All Time</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label fw-semibold small mb-1">Sort top sellers by</label>
+        <select name="sort_by" class="form-select form-select-sm">
+          <option value="revenue" {% if sort_by=='revenue' %}selected{% endif %}>Revenue</option>
+          <option value="qty"     {% if sort_by=='qty'     %}selected{% endif %}>Units Sold</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label fw-semibold small mb-1">Slow = idle for</label>
+        <select name="idle_days" class="form-select form-select-sm">
+          {% for d in [30, 45, 60, 90] %}
+          <option value="{{ d }}" {% if idle_days == d %}selected{% endif %}>{{ d }}+ days</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-1">&nbsp;</label>
+        <button type="submit" class="btn btn-primary btn-sm d-block">
+          <i class="bi bi-funnel-fill"></i> Apply
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="row g-4">
+  <!-- Top Sellers -->
+  <div class="col-lg-7">
+    <div class="card-section h-100">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="fw-bold mb-0">
+          <i class="bi bi-trophy-fill me-2" style="color:var(--c-orange)"></i>Top Sellers
+        </h5>
+        <span class="text-muted small">{{ top_sellers | length }} products · from {{ date_from }}</span>
+      </div>
+      {% if not top_sellers %}
+      <p class="text-muted text-center py-4">No sales data for this period.</p>
+      {% else %}
+      <div style="overflow-x:auto">
+        <table class="table table-hover mb-0" style="font-size:13px">
+          <thead style="background:var(--c-surface-low)">
+            <tr>
+              <th>#</th>
+              <th>Product</th>
+              <th class="text-end">Units</th>
+              <th class="text-end">Revenue (TZS)</th>
+              <th class="text-end">Stock Left</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in top_sellers %}
+            <tr>
+              <td class="text-muted fw-bold">
+                {% if loop.index == 1 %}🥇
+                {% elif loop.index == 2 %}🥈
+                {% elif loop.index == 3 %}🥉
+                {% else %}{{ loop.index }}{% endif %}
+              </td>
+              <td>
+                <div class="fw-semibold">{{ p.model }}</div>
+                <div class="text-muted" style="font-size:11px">
+                  {{ p.category_name }}{% if p.subcategory_name %} › {{ p.subcategory_name }}{% endif %}
+                </div>
+              </td>
+              <td class="text-end fw-bold">{{ "{:,.0f}".format(p.units_sold or 0) }}</td>
+              <td class="text-end fw-bold" style="color:var(--c-orange)">
+                {{ "{:,.0f}".format(p.revenue or 0) }}
+              </td>
+              <td class="text-end">
+                {% if p.stock_count <= 0 %}
+                <span class="badge bg-danger">OUT</span>
+                {% elif p.stock_count <= 2 %}
+                <span class="badge bg-warning text-dark">{{ p.stock_count }}</span>
+                {% else %}
+                {{ p.stock_count }}
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot style="background:var(--c-surface-low);font-weight:700">
+            <tr>
+              <td colspan="2">Total</td>
+              <td class="text-end">{{ "{:,.0f}".format(top_sellers | sum(attribute='units_sold')) }}</td>
+              <td class="text-end" style="color:var(--c-orange)">
+                TZS {{ "{:,.0f}".format(top_sellers | sum(attribute='revenue')) }}
+              </td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Slow-moving -->
+  <div class="col-lg-5">
+    <div class="card-section h-100" style="border-left:4px solid #f59e0b">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="fw-bold mb-0">
+          <i class="bi bi-hourglass-split me-2" style="color:#f59e0b"></i>Slow-Moving
+        </h5>
+        <span class="text-muted small">No sale in {{ idle_days }}+ days</span>
+      </div>
+      {% if not slow %}
+      <p class="text-muted text-center py-4">
+        No products idle for {{ idle_days }}+ days.
+      </p>
+      {% else %}
+      {% set total_value = slow | sum(attribute='stock_value') %}
+      <div class="alert py-2 mb-3" style="background:#fef3c7;border:1px solid #fcd34d;color:#92400e;font-size:13px">
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+        <strong>{{ slow | length }} products</strong> idle ·
+        TZS {{ "{:,.0f}".format(total_value) }} tied up in stock
+      </div>
+      <div style="overflow-x:auto">
+        <table class="table table-hover mb-0" style="font-size:12px">
+          <thead style="background:var(--c-surface-low)">
+            <tr>
+              <th>Product</th>
+              <th class="text-end">Stock</th>
+              <th class="text-end">Days Idle</th>
+              <th class="text-end">Value (TZS)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in slow %}
+            <tr>
+              <td>
+                <a href="{{ url_for('products.edit', product_id=p.id) }}"
+                   class="fw-semibold text-decoration-none">{{ p.model }}</a>
+                <div class="text-muted" style="font-size:10px">{{ p.category_name or p.brand_category }}</div>
+              </td>
+              <td class="text-end">{{ p.stock_count }}</td>
+              <td class="text-end">
+                <span class="badge rounded-pill
+                  {% if p.days_idle >= 90 %}bg-danger
+                  {% elif p.days_idle >= 60 %}bg-warning text-dark
+                  {% else %}bg-secondary{% endif %}"
+                  style="font-size:10px">
+                  {% if p.days_idle >= 9000 %}Never{% else %}{{ p.days_idle }}d{% endif %}
+                </span>
+              </td>
+              <td class="text-end text-muted">
+                {% if p.stock_value > 0 %}{{ "{:,.0f}".format(p.stock_value) }}{% else %}—{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

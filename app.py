@@ -96,6 +96,16 @@ def create_app():
     app.register_blueprint(upgrade_bp)
     app.register_blueprint(devices_bp)
 
+    from config import VIP_TIERS as _VIP_TIERS
+    def _get_tier(spend):
+        spend = float(spend or 0)
+        for t in _VIP_TIERS:
+            if spend >= t['min_spend']:
+                return t
+        return _VIP_TIERS[-1]
+    app.jinja_env.globals['get_tier'] = _get_tier
+    app.jinja_env.globals['VIP_TIERS'] = _VIP_TIERS
+
     @app.template_filter('dt')
     def format_dt(value):
         if not value:
