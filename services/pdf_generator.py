@@ -440,14 +440,26 @@ def _header(c, document) -> float:
 def _info_cards(c, start_y: float, document, customer) -> float:
     """Bill-To card (left) + Document Details card (right). Returns y below cards."""
     top      = start_y
-    CARD_H   = 106
     GAP      = 24
     CARD_W   = (BODY - GAP) / 2    # ~245pt each
     PAD      = 16                   # internal card padding
     RADIUS   = 10
 
-    left_x   = ML
-    right_x  = ML + CARD_W + GAP
+    left_x  = ML
+    right_x = ML + CARD_W + GAP
+
+    # ── Pre-compute customer name wrapping so we can set CARD_H ─────────
+    NAME_FONT = 'Helvetica-Bold'
+    NAME_SIZE = 12
+    NAME_LINE_H = 15
+    avail_name_w = CARD_W - PAD * 2 - 4   # slight buffer from card edge
+
+    name_lines = []
+    if customer and customer.get('name'):
+        name_lines = _text_wrap(c, str(customer['name']), NAME_FONT, NAME_SIZE, avail_name_w)
+
+    extra_h = max(0, len(name_lines) - 1) * NAME_LINE_H
+    CARD_H  = 106 + extra_h
     card_bot = top - CARD_H
 
     # ── Draw card backgrounds ────────────────────────────────────────────
@@ -463,11 +475,13 @@ def _info_cards(c, start_y: float, document, customer) -> float:
     _card_header(c, left_x + PAD, label_y, CARD_W - PAD * 2, label_text)
 
     cy = label_y - 22     # below the header line
-    if customer and customer.get('name'):
-        c.setFont('Helvetica-Bold', 12)
+    if name_lines:
+        c.setFont(NAME_FONT, NAME_SIZE)
         c.setFillColor(C_TEXT)
-        c.drawString(left_x + PAD, cy, _clip(str(customer['name']), 34))
-        cy -= 16
+        for line in name_lines:
+            c.drawString(left_x + PAD, cy, line)
+            cy -= NAME_LINE_H
+        cy -= 2   # small extra gap after name block
         c.setFont('Helvetica', 9)
         c.setFillColor(C_MUTED)
         for key in ('address', 'phone', 'tin'):
@@ -847,6 +861,24 @@ def _cell_text(c, cell_x, cell_y, cell_w, cell_h, text,
 
 def _clip(text: str, maxlen: int) -> str:
     return text[:maxlen] + ('…' if len(text) > maxlen else '')
+
+
+def _text_wrap(c, text: str, font_name: str, font_size: float, max_width: float) -> list:
+    """Split text into lines that each fit within max_width."""
+    words = str(text).split()
+    if not words:
+        return ['']
+    lines = []
+    current = words[0]
+    for word in words[1:]:
+        test = current + ' ' + word
+        if c.stringWidth(test, font_name, font_size) <= max_width:
+            current = test
+        else:
+            lines.append(current)
+            current = word
+    lines.append(current)
+    return lines
 
 
 def _tzs(val) -> str:
