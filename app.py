@@ -81,6 +81,8 @@ def create_app():
     from routes.devices import bp as devices_bp
     from routes.campaigns import bp as campaigns_bp
     from routes.repairs import bp as repairs_bp
+    from routes.cash_recon import bp as cash_recon_bp
+    from routes.returns import bp as returns_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(customers_bp)
@@ -99,6 +101,8 @@ def create_app():
     app.register_blueprint(devices_bp)
     app.register_blueprint(campaigns_bp)
     app.register_blueprint(repairs_bp)
+    app.register_blueprint(cash_recon_bp)
+    app.register_blueprint(returns_bp)
 
     from config import VIP_TIERS as _VIP_TIERS
     def _get_tier(spend):
@@ -109,6 +113,23 @@ def create_app():
         return _VIP_TIERS[-1]
     app.jinja_env.globals['get_tier'] = _get_tier
     app.jinja_env.globals['VIP_TIERS'] = _VIP_TIERS
+
+    from datetime import date as _date, timedelta as _td
+    def _date_label(date_str):
+        if not date_str:
+            return ''
+        try:
+            d = _date.fromisoformat(str(date_str)[:10])
+            today = _date.today()
+            if d == today:
+                return 'Today'
+            elif d == today - _td(days=1):
+                return 'Yesterday'
+            else:
+                return d.strftime('%A, ') + str(d.day) + d.strftime(' %b %Y')
+        except Exception:
+            return str(date_str)[:10]
+    app.jinja_env.globals['date_label'] = _date_label
 
     @app.template_filter('dt')
     def format_dt(value):

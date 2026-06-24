@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% set active = 'returns' %}
+{% block title %}Returns{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Returns &amp; Refunds</h2>
+    <p class="page-sub">Track returned items, refunds, and exchanges</p>
+  </div>
+  <a href="{{ url_for('returns.new') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i> Log Return
+  </a>
+</div>
+
+<!-- Filters -->
+<div class="d-flex gap-2 flex-wrap mb-3">
+  <a href="{{ url_for('returns.list') }}"
+     class="btn btn-sm {% if not status_filter %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+    All
+  </a>
+  <a href="{{ url_for('returns.list', status='approved') }}"
+     class="btn btn-sm {% if status_filter=='approved' %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+    Approved
+  </a>
+  <a href="{{ url_for('returns.list', status='pending') }}"
+     class="btn btn-sm {% if status_filter=='pending' %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+    Pending
+  </a>
+  {% if current_user.is_admin %}
+  <form method="GET" class="ms-auto">
+    <input type="hidden" name="status" value="{{ status_filter }}">
+    <select name="branch_id" class="form-select form-select-sm" style="width:auto"
+            onchange="this.form.submit()">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+      <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>
+        {{ b.name }}
+      </option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
+</div>
+
+{% if not rets %}
+<div class="card-section text-center py-5 text-muted">
+  <i class="bi bi-arrow-return-left" style="font-size:3rem;opacity:.2"></i>
+  <p class="mt-3 fw-semibold">No returns logged yet.</p>
+  <a href="{{ url_for('returns.new') }}" class="btn btn-sm btn-primary mt-1">Log First Return</a>
+</div>
+{% else %}
+<div class="card-section p-0" style="overflow-x:auto">
+  <table class="table table-hover mb-0" style="font-size:13px">
+    <thead style="background:var(--c-surface-low)">
+      <tr>
+        <th>Return #</th>
+        <th>Customer</th>
+        <th>Original Invoice</th>
+        <th>Type</th>
+        <th>Reason</th>
+        <th class="text-end">Refund (TZS)</th>
+        <th>Status</th>
+        <th>Date</th>
+        <th>Branch</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rets %}
+      <tr>
+        <td class="fw-bold" style="color:var(--c-orange)">
+          <a href="{{ url_for('returns.view', ret_id=r.id) }}"
+             class="text-decoration-none" style="color:var(--c-orange)">
+            {{ r.return_number }}
+          </a>
+        </td>
+        <td>
+          {% if r.customer_name %}
+          {{ r.customer_name }}
+          {% else %}
+          <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.original_doc_number %}
+          <a href="{{ url_for('documents.view', doc_id=r.document_id) }}"
+             class="text-decoration-none text-muted">{{ r.original_doc_number }}</a>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% set type_labels = {'refund':'Refund','exchange':'Exchange','credit':'Store Credit'} %}
+          <span class="badge rounded-pill"
+                style="background:{% if r.return_type=='refund' %}#fee2e2;color:#b91c1c
+                {% elif r.return_type=='exchange' %}#dbeafe;color:#1d4ed8
+                {% else %}#dcfce7;color:#166534{% endif %}">
+            {{ type_labels.get(r.return_type, r.return_type) }}
+          </span>
+        </td>
+        <td class="text-muted" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          {{ r.reason }}
+        </td>
+        <td class="text-end fw-semibold">
+          {% if r.refund_amount %}{{ "{:,.0f}".format(r.refund_amount) }}
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if r.status == 'approved' %}
+          <span class="badge" style="background:#dcfce7;color:#166534">✓ Approved</span>
+          {% elif r.status == 'rejected' %}
+          <span class="badge" style="background:#fee2e2;color:#b91c1c">Rejected</span>
+          {% else %}
+          <span class="badge" style="background:#fef3c7;color:#92400e">Pending</span>
+          {% endif %}
+        </td>
+        <td class="text-muted">{{ r.created_at[:10] }}</td>
+        <td class="text-muted" style="font-size:11px">{{ r.branch_name }}</td>
+        <td>
+          <a href="{{ url_for('returns.view', ret_id=r.id) }}"
+             class="btn btn-xs btn-outline-secondary">
+            <i class="bi bi-eye"></i>
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

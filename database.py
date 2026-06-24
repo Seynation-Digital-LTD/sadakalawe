@@ -250,6 +250,57 @@ def _create_tables(db):
             created_at          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
 
+        CREATE TABLE IF NOT EXISTS cash_reconciliations (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            date             TEXT NOT NULL,
+            branch_id        INTEGER NOT NULL REFERENCES branches(id),
+            shift            TEXT NOT NULL DEFAULT 'full_day',
+            cash_counted     REAL NOT NULL DEFAULT 0,
+            cash_sales       REAL NOT NULL DEFAULT 0,
+            mpesa_counted    REAL NOT NULL DEFAULT 0,
+            mpesa_sales      REAL NOT NULL DEFAULT 0,
+            airtel_counted   REAL NOT NULL DEFAULT 0,
+            airtel_sales     REAL NOT NULL DEFAULT 0,
+            card_counted     REAL NOT NULL DEFAULT 0,
+            card_sales       REAL NOT NULL DEFAULT 0,
+            other_counted    REAL NOT NULL DEFAULT 0,
+            other_sales      REAL NOT NULL DEFAULT 0,
+            total_diff       REAL NOT NULL DEFAULT 0,
+            status           TEXT NOT NULL DEFAULT 'open',
+            notes            TEXT,
+            recorded_by      INTEGER REFERENCES users(id),
+            created_at       TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS returns (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            return_number    TEXT NOT NULL UNIQUE,
+            document_id      INTEGER REFERENCES documents(id),
+            customer_id      INTEGER REFERENCES customers(id),
+            walkin_name      TEXT,
+            branch_id        INTEGER NOT NULL REFERENCES branches(id),
+            reason           TEXT NOT NULL,
+            return_type      TEXT NOT NULL DEFAULT 'refund',
+            refund_amount    REAL NOT NULL DEFAULT 0,
+            exchange_notes   TEXT,
+            notes            TEXT,
+            status           TEXT NOT NULL DEFAULT 'pending',
+            processed_by     INTEGER REFERENCES users(id),
+            created_by       INTEGER REFERENCES users(id),
+            created_at       TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS return_items (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            return_id        INTEGER NOT NULL REFERENCES returns(id) ON DELETE CASCADE,
+            document_item_id INTEGER REFERENCES document_items(id),
+            product_id       INTEGER REFERENCES products(id),
+            description      TEXT NOT NULL,
+            quantity         REAL NOT NULL DEFAULT 1,
+            unit_price       REAL NOT NULL DEFAULT 0,
+            line_total       REAL NOT NULL DEFAULT 0
+        );
+
         CREATE TABLE IF NOT EXISTS repair_jobs (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
             job_number       TEXT NOT NULL UNIQUE,

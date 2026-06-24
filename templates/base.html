@@ -50,6 +50,14 @@
          class="nav-link {% if active == 'credits' %}active{% endif %}">
         <i class="bi bi-clock-history"></i> Credits / Debts
       </a>
+      <a href="{{ url_for('returns.list') }}"
+         class="nav-link {% if active == 'returns' %}active{% endif %}">
+        <i class="bi bi-arrow-return-left"></i> Returns
+      </a>
+      <a href="{{ url_for('cash_recon.index') }}"
+         class="nav-link {% if active == 'cash_recon' %}active{% endif %}">
+        <i class="bi bi-safe2"></i> Cash Reconciliation
+      </a>
       <a href="{{ url_for('financing.list') }}"
          class="nav-link {% if active == 'financing' %}active{% endif %}">
         <i class="bi bi-calendar-check"></i> Financing

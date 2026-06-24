@@ -45,6 +45,7 @@ DOC_TYPE_PREFIXES = {
     'financing': 'FIN',
     'tradein': 'TI',
     'repair': 'REP',
+    'return': 'RET',
 }
 
 DOC_TYPE_LABELS = {

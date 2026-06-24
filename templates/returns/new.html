@@ -1,0 +1,309 @@
+{% extends 'base.html' %}
+{% set active = 'returns' %}
+{% block title %}Log Return{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Log a Return</h2>
+    <p class="page-sub">Record a returned item, reason, and outcome</p>
+  </div>
+  <a href="{{ url_for('returns.list') }}" class="btn btn-ghost">
+    <i class="bi bi-arrow-left"></i> All Returns
+  </a>
+</div>
+
+<form method="POST">
+  <div class="row g-4">
+
+    <!-- LEFT -->
+    <div class="col-lg-5">
+
+      <!-- Invoice link -->
+      <div class="card-section mb-4">
+        <h6 class="fw-bold mb-3">Original Invoice <span class="text-muted fw-normal">(recommended)</span></h6>
+        <label class="form-label fw-semibold small">Search Invoice</label>
+        <div class="input-group mb-2">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" id="inv-search" class="form-control form-control-sm"
+                 placeholder="Invoice # or customer name…" autocomplete="off"
+                 value="{% if doc %}{{ doc.doc_number }}{% endif %}">
+        </div>
+        <div id="inv-results" class="list-group shadow-sm"
+             style="display:none;position:absolute;z-index:100;min-width:320px"></div>
+        <input type="hidden" name="document_id" id="document_id"
+               value="{% if doc %}{{ doc.id }}{% endif %}">
+        <input type="hidden" name="customer_id" id="customer_id"
+               value="{% if doc and doc.cust_id %}{{ doc.cust_id }}{% endif %}">
+        {% if doc %}
+        <div class="alert py-2 mb-0" style="background:#dcfce7;border:1px solid #86efac;font-size:12px">
+          <i class="bi bi-check-circle-fill me-1" style="color:#16a34a"></i>
+          <strong>{{ doc.doc_number }}</strong> — {{ doc.customer_name or 'Unnamed' }}
+          <button type="button" class="btn-close float-end" style="font-size:9px" id="inv-clear"></button>
+        </div>
+        {% else %}
+        <div id="inv-linked" class="alert py-2 mb-0 d-none"
+             style="background:#dcfce7;border:1px solid #86efac;font-size:12px">
+          <i class="bi bi-check-circle-fill me-1" style="color:#16a34a"></i>
+          <span id="inv-linked-text"></span>
+          <button type="button" class="btn-close float-end" style="font-size:9px" id="inv-clear"></button>
+        </div>
+        {% endif %}
+        <p class="text-muted mt-2 mb-0" style="font-size:11px">
+          No invoice? Leave blank and fill in details manually below.
+        </p>
+      </div>
+
+      <!-- Customer (if no invoice) -->
+      <div class="card-section mb-4" id="walkin-section">
+        <h6 class="fw-bold mb-3">Customer Name</h6>
+        <input type="text" name="walkin_name" class="form-control form-control-sm"
+               id="walkin_name_field"
+               placeholder="Enter name if no invoice linked"
+               value="{% if doc %}{{ doc.customer_name or '' }}{% endif %}">
+      </div>
+
+      <!-- Branch -->
+      <div class="card-section mb-4">
+        <h6 class="fw-bold mb-2">Branch</h6>
+        <select name="branch_id" class="form-select form-select-sm" required>
+          {% for b in branches %}
+          <option value="{{ b.id }}" {% if b.id == default_branch %}selected{% endif %}>
+            {{ b.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Return type + reason -->
+      <div class="card-section mb-4">
+        <h6 class="fw-bold mb-3">Return Details</h6>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Outcome <span class="text-danger">*</span></label>
+          <div class="d-flex gap-2 flex-wrap">
+            {% for val, label in return_types %}
+            <label class="d-flex align-items-center gap-1" style="cursor:pointer;font-size:13px">
+              <input type="radio" name="return_type" value="{{ val }}"
+                     {% if loop.first %}checked{% endif %}
+                     onchange="toggleOutcome()">
+              {{ label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Reason <span class="text-danger">*</span></label>
+          <select name="reason" class="form-select form-select-sm" required>
+            {% for r in reasons %}
+            <option>{{ r }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3" id="refund-section">
+          <label class="form-label fw-semibold small">Refund Amount (TZS)</label>
+          <input type="number" name="refund_amount" class="form-control form-control-sm"
+                 id="refund_amount" step="500" min="0" value="0">
+        </div>
+        <div class="mb-3 d-none" id="exchange-section">
+          <label class="form-label fw-semibold small">Exchange For</label>
+          <input type="text" name="exchange_notes" class="form-control form-control-sm"
+                 placeholder="Describe the replacement item…">
+        </div>
+        <div class="mb-0">
+          <label class="form-label fw-semibold small">Notes</label>
+          <textarea name="notes" class="form-control form-control-sm" rows="2"
+                    placeholder="Any additional notes…"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: items -->
+    <div class="col-lg-7">
+      <div class="card-section">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="fw-bold mb-0">Items Being Returned</h6>
+          <button type="button" class="btn btn-outline-primary btn-sm" id="btn-add-item">
+            <i class="bi bi-plus-lg me-1"></i> Add Row
+          </button>
+        </div>
+
+        <div class="alert py-2 mb-3" style="background:#fef3c7;border:1px solid #fcd34d;
+             color:#92400e;font-size:12px" id="load-items-hint"
+             {% if doc %}style="display:none"{% endif %}>
+          <i class="bi bi-lightbulb me-1"></i>
+          Link an invoice above and items from that sale will load automatically.
+        </div>
+
+        <div style="overflow-x:auto">
+          <table class="table mb-0" style="font-size:13px">
+            <thead style="background:var(--c-surface-low)">
+              <tr>
+                <th>Description</th>
+                <th style="width:70px" class="text-end">Qty</th>
+                <th style="width:110px" class="text-end">Unit Price</th>
+                <th style="width:110px" class="text-end">Total</th>
+                <th style="width:28px"></th>
+              </tr>
+            </thead>
+            <tbody id="items-body">
+              <!-- populated by JS or pre-filled -->
+            </tbody>
+          </table>
+        </div>
+        <p class="text-muted mt-2 mb-0" style="font-size:11px">
+          Stock will be restored automatically for linked products.
+        </p>
+      </div>
+
+      <div class="mt-4 d-flex gap-3">
+        <button type="submit" class="btn btn-danger px-4">
+          <i class="bi bi-arrow-return-left me-1"></i> Log Return
+        </button>
+        <a href="{{ url_for('returns.list') }}" class="btn btn-ghost">Cancel</a>
+      </div>
+    </div>
+
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const INV_SEARCH_URL  = "{{ url_for('returns.invoice_search') }}";
+const INV_ITEMS_URL   = "{{ url_for('returns.invoice_items', doc_id=0) }}".replace('/0', '/');
+let debounce;
+
+// ── Invoice search ──────────────────────────────────────────
+const searchInp = document.getElementById('inv-search');
+const results   = document.getElementById('inv-results');
+const docIdFld  = document.getElementById('document_id');
+const custIdFld = document.getElementById('customer_id');
+const walkinFld = document.getElementById('walkin_name_field');
+
+searchInp.addEventListener('input', () => {
+  clearTimeout(debounce);
+  const q = searchInp.value.trim();
+  if (q.length < 2) { results.style.display = 'none'; return; }
+  debounce = setTimeout(async () => {
+    const res  = await fetch(INV_SEARCH_URL + '?q=' + encodeURIComponent(q));
+    const data = await res.json();
+    results.innerHTML = '';
+    if (!data.length) { results.style.display = 'none'; return; }
+    data.forEach(inv => {
+      const a = document.createElement('a');
+      a.className = 'list-group-item list-group-item-action py-2';
+      a.style.fontSize = '13px';
+      a.innerHTML = `<strong>${esc(inv.doc_number)}</strong>
+        <span class="text-muted ms-2">${esc(inv.customer_name)}</span>
+        <span class="float-end text-muted">${inv.date}</span>`;
+      a.addEventListener('click', () => linkInvoice(inv));
+      results.appendChild(a);
+    });
+    results.style.display = 'block';
+  }, 250);
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#inv-search') && !e.target.closest('#inv-results'))
+    results.style.display = 'none';
+});
+
+async function linkInvoice(inv) {
+  docIdFld.value = inv.id;
+  searchInp.value = inv.doc_number;
+  results.style.display = 'none';
+  walkinFld.value = inv.customer_name;
+
+  const linked = document.getElementById('inv-linked');
+  if (linked) {
+    document.getElementById('inv-linked-text').textContent =
+      inv.doc_number + ' — ' + (inv.customer_name || 'Unnamed');
+    linked.classList.remove('d-none');
+    document.getElementById('load-items-hint')?.remove();
+  }
+
+  // Load invoice items
+  const res = await fetch(INV_ITEMS_URL + inv.id);
+  const items = await res.json();
+  const tbody = document.getElementById('items-body');
+  tbody.innerHTML = '';
+  items.forEach(item => addItemRow(item.description, item.quantity, item.unit_price, item.id, item.product_id));
+}
+
+document.getElementById('inv-clear')?.addEventListener('click', () => {
+  docIdFld.value = '';
+  custIdFld.value = '';
+  searchInp.value = '';
+  walkinFld.value = '';
+  document.getElementById('inv-linked')?.classList.add('d-none');
+  document.getElementById('items-body').innerHTML = '';
+});
+
+// ── Item rows ───────────────────────────────────────────────
+let rowIdx = 0;
+function addItemRow(desc='', qty=1, price=0, diId='', prodId='') {
+  const i = rowIdx++;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td>
+      <input type="text" name="item_description[]" class="form-control form-control-sm"
+             value="${esc(desc)}" required>
+      <input type="hidden" name="item_di_id[]"      value="${esc(diId)}">
+      <input type="hidden" name="item_product_id[]" value="${esc(prodId || '')}">
+    </td>
+    <td><input type="number" name="item_qty[]" class="form-control form-control-sm text-end item-qty"
+               value="${qty}" min="0.01" step="0.01" required></td>
+    <td><input type="number" name="item_price[]" class="form-control form-control-sm text-end item-price"
+               value="${price}" min="0" step="1"></td>
+    <td class="text-end fw-semibold item-total">${fmt(qty * price)}</td>
+    <td><button type="button" class="btn btn-xs btn-outline-danger" onclick="this.closest('tr').remove(); updateRefund()">
+      <i class="bi bi-trash"></i>
+    </button></td>
+  `;
+  tr.querySelectorAll('.item-qty, .item-price').forEach(inp => inp.addEventListener('input', () => {
+    const q = parseFloat(tr.querySelector('.item-qty').value) || 0;
+    const p = parseFloat(tr.querySelector('.item-price').value) || 0;
+    tr.querySelector('.item-total').textContent = fmt(q * p);
+    updateRefund();
+  }));
+  document.getElementById('items-body').appendChild(tr);
+  updateRefund();
+}
+
+function updateRefund() {
+  let total = 0;
+  document.querySelectorAll('#items-body tr').forEach(tr => {
+    const q = parseFloat(tr.querySelector('.item-qty')?.value) || 0;
+    const p = parseFloat(tr.querySelector('.item-price')?.value) || 0;
+    total += q * p;
+  });
+  const fld = document.getElementById('refund_amount');
+  if (fld) fld.value = Math.round(total);
+}
+
+document.getElementById('btn-add-item').addEventListener('click', () => addItemRow());
+
+// ── Outcome toggle ──────────────────────────────────────────
+function toggleOutcome() {
+  const val = document.querySelector('input[name="return_type"]:checked')?.value;
+  document.getElementById('refund-section').classList.toggle('d-none', val !== 'refund' && val !== 'credit');
+  document.getElementById('exchange-section').classList.toggle('d-none', val !== 'exchange');
+}
+
+// ── Pre-fill items if doc was passed server-side ────────────
+{% if doc_items %}
+{% for item in doc_items %}
+addItemRow({{ item.description | tojson }}, {{ item.quantity }},
+           {{ item.unit_price }}, {{ item.id }}, {{ item.product_id or 'null' }});
+{% endfor %}
+{% else %}
+// Start with one blank row if no invoice
+addItemRow();
+{% endif %}
+
+function fmt(n) { return (+n).toLocaleString(); }
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

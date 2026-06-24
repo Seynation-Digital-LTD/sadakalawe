@@ -1,0 +1,138 @@
+{% extends 'base.html' %}
+{% set active = 'returns' %}
+{% block title %}{{ ret.return_number }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">{{ ret.return_number }}</h2>
+    <p class="page-sub">{{ ret.created_at[:10] }} · {{ ret.branch_name }}</p>
+  </div>
+  <a href="{{ url_for('returns.list') }}" class="btn btn-ghost">
+    <i class="bi bi-arrow-left"></i> All Returns
+  </a>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+
+    <!-- Items returned -->
+    <div class="card-section mb-4">
+      <h6 class="fw-bold mb-3">Items Returned</h6>
+      {% if not items %}
+      <p class="text-muted">No items recorded.</p>
+      {% else %}
+      <table class="table mb-0" style="font-size:13px">
+        <thead style="background:var(--c-surface-low)">
+          <tr>
+            <th>Description</th>
+            <th class="text-end">Qty</th>
+            <th class="text-end">Unit Price</th>
+            <th class="text-end">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set ns = namespace(grand=0) %}
+          {% for item in items %}
+          <tr>
+            <td>{{ item.description }}</td>
+            <td class="text-end">{{ item.quantity | int }}</td>
+            <td class="text-end">{{ "{:,.0f}".format(item.unit_price) }}</td>
+            <td class="text-end fw-semibold">{{ "{:,.0f}".format(item.line_total) }}</td>
+            {% set ns.grand = ns.grand + item.line_total %}
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot style="font-weight:700;background:var(--c-surface-low)">
+          <tr>
+            <td colspan="3">Total Return Value</td>
+            <td class="text-end" style="color:var(--c-orange)">
+              TZS {{ "{:,.0f}".format(ns.grand) }}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <div class="col-lg-5">
+
+    <!-- Return summary -->
+    <div class="card-section mb-4">
+      <h6 class="fw-bold mb-3">Return Details</h6>
+
+      {% set type_labels = {'refund':'Cash Refund','exchange':'Exchange','credit':'Store Credit'} %}
+      {% set type_colors = {'refund':'#fee2e2;color:#b91c1c','exchange':'#dbeafe;color:#1d4ed8','credit':'#dcfce7;color:#166534'} %}
+
+      <div class="d-flex justify-content-between mb-2">
+        <span class="text-muted">Outcome</span>
+        <span class="badge rounded-pill"
+              style="background:{{ type_colors.get(ret.return_type, '#f1f5f9;color:#475569') }}">
+          {{ type_labels.get(ret.return_type, ret.return_type) }}
+        </span>
+      </div>
+      {% if ret.refund_amount %}
+      <div class="d-flex justify-content-between mb-2">
+        <span class="text-muted">Refund Amount</span>
+        <span class="fw-bold" style="color:var(--c-orange)">
+          TZS {{ "{:,.0f}".format(ret.refund_amount) }}
+        </span>
+      </div>
+      {% endif %}
+      {% if ret.exchange_notes %}
+      <div class="d-flex justify-content-between mb-2">
+        <span class="text-muted">Exchange For</span>
+        <span>{{ ret.exchange_notes }}</span>
+      </div>
+      {% endif %}
+      <div class="d-flex justify-content-between mb-2">
+        <span class="text-muted">Reason</span>
+        <span>{{ ret.reason }}</span>
+      </div>
+      <hr class="my-2">
+      <div class="d-flex justify-content-between mb-2">
+        <span class="text-muted">Customer</span>
+        <span class="fw-semibold">{{ ret.customer_name or '—' }}</span>
+      </div>
+      {% if ret.original_doc_number %}
+      <div class="d-flex justify-content-between mb-2">
+        <span class="text-muted">Original Invoice</span>
+        <a href="{{ url_for('documents.view', doc_id=ret.document_id) }}"
+           class="text-decoration-none">{{ ret.original_doc_number }}</a>
+      </div>
+      {% endif %}
+      <div class="d-flex justify-content-between mb-2">
+        <span class="text-muted">Status</span>
+        {% if ret.status == 'approved' %}
+        <span class="badge" style="background:#dcfce7;color:#166534">✓ Approved</span>
+        {% elif ret.status == 'rejected' %}
+        <span class="badge" style="background:#fee2e2;color:#b91c1c">Rejected</span>
+        {% else %}
+        <span class="badge" style="background:#fef3c7;color:#92400e">Pending</span>
+        {% endif %}
+      </div>
+      <div class="d-flex justify-content-between mb-2">
+        <span class="text-muted">Logged by</span>
+        <span>{{ ret.created_by_name }} · {{ ret.created_at[:16] }}</span>
+      </div>
+      {% if ret.notes %}
+      <hr class="my-2">
+      <div class="text-muted small">{{ ret.notes }}</div>
+      {% endif %}
+    </div>
+
+    <!-- Stock restored notice -->
+    <div class="card-section" style="background:#f0fdf4;border:1.5px solid #86efac">
+      <div class="fw-bold mb-1" style="color:#15803d">
+        <i class="bi bi-box-seam me-1"></i> Stock Restored
+      </div>
+      <p class="text-muted small mb-0">
+        Items linked to products in the catalog have been added back to stock automatically.
+      </p>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

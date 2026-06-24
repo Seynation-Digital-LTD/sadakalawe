@@ -1,0 +1,197 @@
+{% extends 'base.html' %}
+{% set active = 'cash_recon' %}
+{% block title %}New Reconciliation{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">End-of-Day Reconciliation</h2>
+    <p class="page-sub">Count the money, compare with the system. Any difference gets flagged.</p>
+  </div>
+  <a href="{{ url_for('cash_recon.index') }}" class="btn btn-ghost">
+    <i class="bi bi-arrow-left"></i> History
+  </a>
+</div>
+
+<form method="POST" id="recon-form">
+  <div class="row g-4">
+
+    <!-- Left: date + branch -->
+    <div class="col-lg-4">
+      <div class="card-section mb-4">
+        <h6 class="fw-bold mb-3">Details</h6>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Branch <span class="text-danger">*</span></label>
+          <select name="branch_id" id="branch-sel" class="form-select form-select-sm" required>
+            {% for b in branches %}
+            <option value="{{ b.id }}"
+              {% if default_branch and b.id == default_branch %}selected{% endif %}>
+              {{ b.name }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Date <span class="text-danger">*</span></label>
+          <input type="date" name="date" id="date-sel" class="form-select form-select-sm"
+                 value="{{ prefill_date }}" max="{{ today }}" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Shift</label>
+          <select name="shift" class="form-select form-select-sm">
+            <option value="full_day">Full Day</option>
+            <option value="morning">Morning</option>
+            <option value="afternoon">Afternoon</option>
+          </select>
+        </div>
+        <button type="button" id="btn-reload" class="btn btn-outline-secondary btn-sm w-100">
+          <i class="bi bi-arrow-clockwise me-1"></i> Load System Totals
+        </button>
+      </div>
+
+      <div class="card-section">
+        <h6 class="fw-bold mb-3">Summary</h6>
+        <div class="d-flex justify-content-between mb-1">
+          <span class="text-muted">Total Counted</span>
+          <span id="sum-counted" class="fw-bold">TZS 0</span>
+        </div>
+        <div class="d-flex justify-content-between mb-1">
+          <span class="text-muted">System Total</span>
+          <span id="sum-sys" class="fw-bold">TZS 0</span>
+        </div>
+        <hr class="my-2">
+        <div class="d-flex justify-content-between">
+          <span class="fw-bold">Difference</span>
+          <span id="sum-diff" class="fw-bold" style="font-size:16px">TZS 0</span>
+        </div>
+        <div class="mt-3">
+          <label class="form-label fw-semibold small">Notes</label>
+          <textarea name="notes" class="form-control form-control-sm" rows="2"
+                    placeholder="Any discrepancy explanation…"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary w-100 mt-3">
+          <i class="bi bi-check-lg me-1"></i> Save Reconciliation
+        </button>
+      </div>
+    </div>
+
+    <!-- Right: payment method rows -->
+    <div class="col-lg-8">
+      <div class="card-section">
+        <h6 class="fw-bold mb-3">Payment Methods</h6>
+
+        <div class="alert py-2 mb-3" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;font-size:12px">
+          <i class="bi bi-info-circle me-1"></i>
+          <strong>System Total</strong> = what was recorded in invoices today.
+          <strong>You Counted</strong> = what you physically have.
+          The difference should be zero.
+        </div>
+
+        <div style="overflow-x:auto">
+          <table class="table mb-0" style="font-size:13px">
+            <thead style="background:var(--c-surface-low)">
+              <tr>
+                <th>Method</th>
+                <th class="text-end">System Total</th>
+                <th class="text-end" style="width:180px">You Counted (TZS)</th>
+                <th class="text-end" style="width:120px">Difference</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% set method_data = [
+                ('cash',   'bi-cash-coin',    'Cash'),
+                ('mpesa',  'bi-phone',        'M-Pesa'),
+                ('airtel', 'bi-phone',        'Airtel Money'),
+                ('card',   'bi-credit-card',  'Card / POS'),
+                ('other',  'bi-three-dots',   'Other'),
+              ] %}
+              {% for key, icon, label in method_data %}
+              <tr>
+                <td>
+                  <i class="bi {{ icon }} me-2" style="color:var(--c-orange)"></i>
+                  {{ label }}
+                </td>
+                <td class="text-end">
+                  <span id="sys-{{ key }}" class="fw-semibold text-muted">
+                    {{ "{:,.0f}".format(sales.get(key, 0)) }}
+                  </span>
+                  <input type="hidden" name="{{ key }}_sales"
+                         id="sales-{{ key }}" value="{{ sales.get(key, 0) }}">
+                </td>
+                <td class="text-end">
+                  <input type="number" name="{{ key }}_counted"
+                         id="cnt-{{ key }}" class="form-control form-control-sm text-end counted-input"
+                         data-method="{{ key }}"
+                         step="1" min="0" value="{{ sales.get(key, 0) | int }}"
+                         style="font-weight:600">
+                </td>
+                <td class="text-end fw-bold" id="diff-{{ key }}">0</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SALES_URL = "{{ url_for('cash_recon.sales_for_date') }}";
+const METHODS   = ['cash', 'mpesa', 'airtel', 'card', 'other'];
+
+function fmt(n) {
+  return n.toLocaleString('en', {minimumFractionDigits:0, maximumFractionDigits:0});
+}
+
+function recalc() {
+  let totalCounted = 0, totalSys = 0;
+  METHODS.forEach(m => {
+    const cnt = parseFloat(document.getElementById('cnt-' + m).value) || 0;
+    const sys = parseFloat(document.getElementById('sales-' + m).value) || 0;
+    const diff = cnt - sys;
+    const el = document.getElementById('diff-' + m);
+    el.textContent = (diff >= 0 ? '+' : '') + fmt(diff);
+    el.style.color = diff === 0 ? '#16a34a' : diff > 0 ? '#0369a1' : '#dc2626';
+    totalCounted += cnt;
+    totalSys += sys;
+  });
+
+  const grandDiff = totalCounted - totalSys;
+  document.getElementById('sum-counted').textContent = 'TZS ' + fmt(totalCounted);
+  document.getElementById('sum-sys').textContent     = 'TZS ' + fmt(totalSys);
+  const dEl = document.getElementById('sum-diff');
+  dEl.textContent = (grandDiff >= 0 ? '+' : '') + 'TZS ' + fmt(grandDiff);
+  dEl.style.color = grandDiff === 0 ? '#16a34a' : grandDiff > 0 ? '#0369a1' : '#dc2626';
+}
+
+document.querySelectorAll('.counted-input').forEach(inp => {
+  inp.addEventListener('input', recalc);
+});
+
+async function loadSales() {
+  const branch = document.getElementById('branch-sel').value;
+  const date   = document.getElementById('date-sel').value;
+  if (!branch || !date) return;
+  const res  = await fetch(`${SALES_URL}?branch_id=${branch}&date=${date}`);
+  const data = await res.json();
+  METHODS.forEach(m => {
+    const val = data[m] || 0;
+    document.getElementById('sys-' + m).textContent  = fmt(val);
+    document.getElementById('sales-' + m).value      = val;
+    document.getElementById('cnt-' + m).value        = Math.round(val);
+  });
+  recalc();
+}
+
+document.getElementById('btn-reload').addEventListener('click', loadSales);
+document.getElementById('branch-sel').addEventListener('change', loadSales);
+document.getElementById('date-sel').addEventListener('change', loadSales);
+
+// Initial calc
+recalc();
+</script>
+{% endblock %}

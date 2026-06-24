@@ -3,7 +3,7 @@ import secrets
 import zipfile
 from urllib.parse import quote as urlquote
 from flask import (Blueprint, render_template, request, redirect, url_for,
-                   flash, send_file, abort, current_app)
+                   flash, send_file, abort, current_app, session)
 from flask_login import login_required, current_user
 from database import execute_db, query_db
 from services.numbering import get_next_number
@@ -225,6 +225,25 @@ def new():
     default_branch_id = current_user.branch_id or (branches[0]['id'] if branches else None)
 
     if request.method == 'POST':
+        # ── Duplicate-submission guard ──────────────────────────────────
+        submitted_nonce = request.form.get('_form_nonce', '')
+        stored_nonce    = session.pop('doc_form_nonce', None)
+        if not submitted_nonce or submitted_nonce != stored_nonce:
+            # Nonce mismatch — this form was already submitted.
+            # Find the most recent batch by this user (last 60 s) and redirect.
+            recent = query_db("""
+                SELECT id FROM documents
+                WHERE created_by=? AND created_at >= datetime('now','localtime','-60 seconds')
+                ORDER BY id DESC LIMIT 3
+            """, (current_user.id,))
+            if recent:
+                ids_str = ','.join(str(r['id']) for r in recent)
+                flash('This form was already submitted — here are your documents.', 'info')
+                return redirect(url_for('documents.result', ids=ids_str))
+            flash('Form session expired. Please fill in the details again.', 'warning')
+            return redirect(url_for('documents.new'))
+        # ───────────────────────────────────────────────────────────────
+
         branch_id       = int(request.form['branch_id'])
         customer_id     = request.form.get('customer_id') or None
         walkin_name     = tc(request.form.get('walkin_name', '')) or None
@@ -300,9 +319,12 @@ def new():
         ids_str = ','.join(str(i) for i in created_ids)
         return redirect(url_for('documents.result', ids=ids_str))
 
+    form_nonce = secrets.token_hex(16)
+    session['doc_form_nonce'] = form_nonce
     return render_template('documents/new.html', branches=branches,
                            vat_rate=VAT_RATE, default_branch_id=default_branch_id,
-                           today=date.today().isoformat())
+                           today=date.today().isoformat(),
+                           form_nonce=form_nonce)
 
 
 @bp.route('/result')
