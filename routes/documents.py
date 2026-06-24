@@ -137,6 +137,36 @@ def _deduct_stock(items, branch_id, invoice_id):
         """, (pid, pid))
 
 
+def _restore_invoice_stock(invoice_id):
+    """Restore stock when an invoice is deleted/voided."""
+    doc = query_db("SELECT branch_id FROM documents WHERE id=?", (invoice_id,), one=True)
+    if not doc:
+        return
+    branch_id = doc['branch_id']
+    items = query_db(
+        "SELECT product_id, quantity FROM document_items WHERE document_id=? AND product_id IS NOT NULL",
+        (invoice_id,))
+    for item in items:
+        pid = item['product_id']
+        qty = abs(item['quantity'])
+        execute_db("""
+            INSERT INTO product_stock (product_id, branch_id, quantity)
+            VALUES (?,?,?)
+            ON CONFLICT(product_id, branch_id)
+            DO UPDATE SET quantity = quantity + excluded.quantity
+        """, (pid, branch_id, qty))
+        execute_db("""
+            UPDATE products SET
+              stock_count = (SELECT COALESCE(SUM(quantity),0)
+                             FROM product_stock WHERE product_id=?),
+              updated_at  = datetime('now','localtime')
+            WHERE id=?
+        """, (pid, pid))
+    # Remove the sale stock movements for this invoice
+    execute_db("DELETE FROM stock_movements WHERE reference_doc_id=? AND movement_type='sale'",
+               (invoice_id,))
+
+
 @bp.route('/')
 @login_required
 def list():
@@ -278,6 +308,35 @@ def new():
 
         if payment_type != 'credit':
             amount_paid = total  # fully paid on creation for all non-credit methods
+
+        # ── Server-side idempotency: block genuine duplicates ──────────
+        # If the same staff created an invoice for the same customer with the
+        # same total at this branch within the last 5 minutes, redirect to it.
+        dup_check = query_db("""
+            SELECT d.id FROM documents d
+            WHERE d.created_by = ?
+              AND d.branch_id  = ?
+              AND d.doc_type   = 'invoice'
+              AND d.total      = ?
+              AND (d.customer_id = ? OR (d.customer_id IS NULL AND d.walkin_name = ?))
+              AND d.created_at >= datetime('now','localtime','-5 minutes')
+            ORDER BY d.id DESC LIMIT 1
+        """, (current_user.id, branch_id, total,
+              customer_id, walkin_name))
+        if dup_check:
+            # Find the full batch for that invoice
+            inv_id = dup_check[0]['id']
+            inv_doc = query_db("SELECT batch_id FROM documents WHERE id=?", (inv_id,), one=True)
+            if inv_doc and inv_doc['batch_id']:
+                batch_docs = query_db(
+                    "SELECT id FROM documents WHERE batch_id=? ORDER BY id",
+                    (inv_doc['batch_id'],))
+                ids_str = ','.join(str(r['id']) for r in batch_docs)
+            else:
+                ids_str = str(inv_id)
+            flash('This sale was already recorded. Showing the existing documents.', 'info')
+            return redirect(url_for('documents.result', ids=ids_str))
+        # ────────────────────────────────────────────────────────────────
 
         created_ids = []
         invoice_id  = None
@@ -500,10 +559,50 @@ def download_pdf(doc_id):
 @login_required
 @perm_required('void_documents')
 def delete(doc_id):
-    doc = query_db("SELECT doc_number FROM documents WHERE id=?", (doc_id,), one=True)
+    doc = query_db("SELECT id, doc_number, doc_type FROM documents WHERE id=?", (doc_id,), one=True)
     if doc:
+        if doc['doc_type'] == 'invoice':
+            _restore_invoice_stock(doc_id)
+        execute_db("DELETE FROM document_items WHERE document_id=?", (doc_id,))
         execute_db("DELETE FROM documents WHERE id=?", (doc_id,))
         flash(f'Document {doc["doc_number"]} deleted.', 'success')
+    return redirect(url_for('documents.list'))
+
+
+@bp.route('/<int:doc_id>/delete-batch', methods=['POST'])
+@login_required
+@perm_required('void_documents')
+def delete_batch(doc_id):
+    """Delete an entire batch (invoice + proforma + delivery note) at once."""
+    lead = query_db("SELECT id, doc_number, doc_type, batch_id FROM documents WHERE id=?",
+                    (doc_id,), one=True)
+    if not lead:
+        flash('Document not found.', 'danger')
+        return redirect(url_for('documents.list'))
+
+    # Gather all docs in the batch
+    if lead['batch_id']:
+        batch_docs = query_db(
+            "SELECT id, doc_number, doc_type FROM documents WHERE batch_id=?",
+            (lead['batch_id'],))
+    else:
+        batch_docs = [lead]
+
+    # Restore stock from the invoice in the batch
+    for bdoc in batch_docs:
+        if bdoc['doc_type'] == 'invoice':
+            _restore_invoice_stock(bdoc['id'])
+            break
+
+    # Delete items then documents
+    for bdoc in batch_docs:
+        execute_db("DELETE FROM document_items WHERE document_id=?", (bdoc['id'],))
+    ids = [bdoc['id'] for bdoc in batch_docs]
+    placeholders = ','.join('?' * len(ids))
+    execute_db(f"DELETE FROM documents WHERE id IN ({placeholders})", ids)
+
+    nums = ', '.join(bdoc['doc_number'] for bdoc in batch_docs)
+    flash(f'Deleted: {nums}', 'success')
     return redirect(url_for('documents.list'))
 
 
