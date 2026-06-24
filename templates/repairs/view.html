@@ -1,0 +1,333 @@
+{% extends 'base.html' %}
+{% set active = 'repairs' %}
+{% block title %}{{ job.job_number }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">{{ job.job_number }}</h2>
+    <p class="page-sub">{{ job.device_make }} {{ job.device_model }}</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('repairs.edit', job_id=job.id) }}" class="btn btn-ghost btn-sm">
+      <i class="bi bi-pencil me-1"></i> Edit
+    </a>
+    <a href="{{ url_for('repairs.list') }}" class="btn btn-ghost btn-sm">
+      <i class="bi bi-arrow-left"></i> All Jobs
+    </a>
+  </div>
+</div>
+
+<!-- Status flow bar -->
+{% set flow = ['received','diagnosed','awaiting_parts','in_progress','ready','collected'] %}
+<div class="card-section mb-4 py-3">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+    {% for step in flow %}
+    {% set si = status_map[step] %}
+    {% set is_done = flow.index(step) < flow.index(job.status) if job.status in flow else False %}
+    {% set is_current = job.status == step %}
+    <div class="d-flex align-items-center gap-1" style="font-size:12px">
+      <div style="
+        width:28px;height:28px;border-radius:50%;
+        display:flex;align-items:center;justify-content:center;
+        font-weight:700;font-size:12px;
+        background:{% if is_current %}{{ si.color }}{% elif is_done %}#22c55e{% else %}#e2e8f0{% endif %};
+        color:{% if is_current or is_done %}#fff{% else %}#94a3b8{% endif %}">
+        {% if is_done %}<i class="bi bi-check"></i>
+        {% else %}{{ loop.index }}{% endif %}
+      </div>
+      <span class="d-none d-md-inline"
+            style="color:{% if is_current %}{{ si.color }}{% elif is_done %}#22c55e{% else %}#94a3b8{% endif %};
+                   font-weight:{% if is_current %}700{% else %}400{% endif %}">
+        {{ si.label }}
+      </span>
+    </div>
+    {% if not loop.last %}
+    <div style="flex:1;height:2px;background:{% if is_done %}#22c55e{% else %}#e2e8f0{% endif %};
+                max-width:40px;min-width:10px"></div>
+    {% endif %}
+    {% endfor %}
+
+    {% if job.status == 'cancelled' %}
+    <span class="badge bg-danger ms-2">Cancelled</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Left: job info -->
+  <div class="col-lg-7">
+
+    <!-- Device card -->
+    <div class="card-section mb-4">
+      <div class="d-flex justify-content-between align-items-start mb-3">
+        <h6 class="fw-bold mb-0">Device</h6>
+        {% set st = status_map[job.status] %}
+        <span class="badge rounded-pill"
+              style="background:{{ st.bg }};color:{{ st.color }};font-size:12px;font-weight:700">
+          {{ st.label }}
+        </span>
+      </div>
+      <div class="row g-3">
+        <div class="col-6">
+          <div class="text-muted small">Make</div>
+          <div class="fw-semibold">{{ job.device_make }}</div>
+        </div>
+        <div class="col-6">
+          <div class="text-muted small">Model</div>
+          <div class="fw-semibold">{{ job.device_model }}</div>
+        </div>
+        {% if job.color %}
+        <div class="col-6">
+          <div class="text-muted small">Color</div>
+          <div>{{ job.color }}</div>
+        </div>
+        {% endif %}
+        {% if job.imei %}
+        <div class="col-6">
+          <div class="text-muted small">IMEI / Serial</div>
+          <div style="font-family:monospace;font-size:12px">{{ job.imei }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Problem card -->
+    <div class="card-section mb-4">
+      <h6 class="fw-bold mb-2">Problem Reported</h6>
+      <p class="mb-0">{{ job.problem }}</p>
+      {% if job.diagnosis %}
+      <hr class="my-2">
+      <div class="text-muted small mb-1">Diagnosis</div>
+      <p class="mb-0">{{ job.diagnosis }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Customer card -->
+    <div class="card-section mb-4">
+      <h6 class="fw-bold mb-2">Customer</h6>
+      {% if job.customer_name %}
+      <a href="{{ url_for('customers.view', customer_id=job.customer_id) }}"
+         class="fw-semibold text-decoration-none">{{ job.customer_name }}</a>
+      {% if job.customer_phone %}
+      <div class="text-muted small mt-1">{{ job.customer_phone }}</div>
+      {% endif %}
+      {% elif job.walkin_name %}
+      <div class="fw-semibold">{{ job.walkin_name }}
+        <span class="badge bg-secondary ms-1" style="font-size:9px">Walk-in</span>
+      </div>
+      {% if job.walkin_phone %}
+      <div class="text-muted small mt-1">{{ job.walkin_phone }}</div>
+      {% endif %}
+      {% else %}
+      <span class="text-muted">No customer linked</span>
+      {% endif %}
+    </div>
+
+    <!-- Status history -->
+    <div class="card-section">
+      <h6 class="fw-bold mb-3">Status History</h6>
+      {% if not log %}
+      <p class="text-muted small">No history yet.</p>
+      {% else %}
+      <div class="timeline">
+        {% for entry in log %}
+        {% set si = status_map.get(entry.status, {'label':entry.status,'color':'#64748b','bg':'#f1f5f9'}) %}
+        <div class="d-flex gap-3 mb-3">
+          <div style="width:10px;height:10px;border-radius:50%;margin-top:5px;flex-shrink:0;
+                      background:{{ si.color }}"></div>
+          <div>
+            <span class="fw-semibold" style="color:{{ si.color }}">{{ si.label }}</span>
+            <span class="text-muted small ms-2">{{ entry.changed_at | dt }}</span>
+            {% if entry.user_name %}
+            <span class="text-muted small ms-2">by {{ entry.user_name }}</span>
+            {% endif %}
+            {% if entry.notes %}
+            <div class="text-muted small mt-1">{{ entry.notes }}</div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- Right: costs + actions -->
+  <div class="col-lg-5">
+
+    <!-- Cost summary -->
+    <div class="card-section mb-4">
+      <h6 class="fw-bold mb-3">Cost & Schedule</h6>
+      <div class="d-flex justify-content-between mb-2">
+        <span class="text-muted">Estimated Cost</span>
+        <span class="fw-semibold">
+          {% if job.estimated_cost %}TZS {{ "{:,.0f}".format(job.estimated_cost) }}{% else %}—{% endif %}
+        </span>
+      </div>
+      <div class="d-flex justify-content-between mb-2">
+        <span class="text-muted">Final Cost</span>
+        <span class="fw-bold" style="color:var(--c-orange)">
+          {% if job.final_cost %}TZS {{ "{:,.0f}".format(job.final_cost) }}{% else %}—{% endif %}
+        </span>
+      </div>
+      <hr class="my-2">
+      <div class="d-flex justify-content-between mb-1">
+        <span class="text-muted">Est. Ready</span>
+        <span>{{ job.estimated_ready or '—' }}</span>
+      </div>
+      {% if job.collected_at %}
+      <div class="d-flex justify-content-between">
+        <span class="text-muted">Collected</span>
+        <span>{{ job.collected_at | dt }}</span>
+      </div>
+      {% endif %}
+      <hr class="my-2">
+      <div class="d-flex justify-content-between mb-1">
+        <span class="text-muted">Branch</span>
+        <span>{{ job.branch_name }}</span>
+      </div>
+      <div class="d-flex justify-content-between mb-1">
+        <span class="text-muted">Technician</span>
+        <span>{{ job.technician or '—' }}</span>
+      </div>
+      <div class="d-flex justify-content-between">
+        <span class="text-muted">Logged by</span>
+        <span>{{ job.created_by_name }} · {{ job.created_at | dt }}</span>
+      </div>
+      {% if job.notes %}
+      <hr class="my-2">
+      <div class="text-muted small">{{ job.notes }}</div>
+      {% endif %}
+    </div>
+
+    <!-- WhatsApp: ready notification -->
+    {% if wa_url %}
+    <div class="card-section mb-4"
+         style="background:#f0fdf4;border:1.5px solid #86efac">
+      <div class="fw-bold mb-2" style="color:#15803d">
+        <i class="bi bi-whatsapp me-1"></i> Device is Ready!
+      </div>
+      <p class="small text-muted mb-3">
+        Notify the customer that their device is ready for collection.
+      </p>
+      <a href="{{ wa_url }}" target="_blank" rel="noopener"
+         class="btn w-100" style="background:#25d366;color:#fff;border:none">
+        <i class="bi bi-whatsapp me-1"></i> Send WhatsApp Notification
+      </a>
+    </div>
+    {% endif %}
+
+    <!-- Update status -->
+    {% if job.status not in ('collected', 'cancelled') %}
+    <div class="card-section mb-3">
+      <h6 class="fw-bold mb-3">Update Status</h6>
+
+      <!-- Quick advance -->
+      {% if next_status %}
+      <button class="btn btn-primary w-100 mb-3" data-bs-toggle="modal"
+              data-bs-target="#advance-modal">
+        <i class="bi bi-arrow-right-circle me-1"></i>
+        Mark as {{ next_info.label }} →
+      </button>
+      {% endif %}
+
+      <!-- Manual pick -->
+      <button class="btn btn-outline-secondary btn-sm w-100"
+              data-bs-toggle="modal" data-bs-target="#status-modal">
+        <i class="bi bi-pencil-square me-1"></i> Change Status Manually
+      </button>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<!-- ── Advance-status Modal ─────────────────────────────────────────── -->
+{% if next_status %}
+<div class="modal fade" id="advance-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Mark as {{ next_info.label }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('repairs.update_status', job_id=job.id) }}">
+        <input type="hidden" name="status" value="{{ next_status }}">
+        <div class="modal-body">
+          {% if next_status == 'ready' %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Final Cost (TZS)</label>
+            <input type="number" name="final_cost" class="form-control"
+                   placeholder="{{ job.estimated_cost or '' }}" step="500" min="0">
+          </div>
+          {% endif %}
+          {% if next_status == 'diagnosed' %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Diagnosis Notes</label>
+            <textarea name="diagnosis" class="form-control" rows="3"
+                      placeholder="What was found and what will be done…"></textarea>
+          </div>
+          {% endif %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Notes (optional)</label>
+            <textarea name="notes" class="form-control" rows="2"
+                      placeholder="Any additional notes…"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i> Confirm
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Manual status Modal ─────────────────────────────────────────── -->
+<div class="modal fade" id="status-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Change Status</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('repairs.update_status', job_id=job.id) }}">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">New Status</label>
+            <select name="status" class="form-select" required>
+              {% for key, label, color, bg in statuses %}
+              <option value="{{ key }}" {% if job.status == key %}disabled{% endif %}>
+                {{ label }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Final Cost (TZS)</label>
+            <input type="number" name="final_cost" class="form-control"
+                   value="{{ job.final_cost or '' }}" step="500" min="0">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Diagnosis</label>
+            <textarea name="diagnosis" class="form-control" rows="2">{{ job.diagnosis or '' }}</textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold small">Notes</label>
+            <textarea name="notes" class="form-control" rows="2"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Update</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

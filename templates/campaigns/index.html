@@ -1,0 +1,382 @@
+{% extends 'base.html' %}
+{% set active = 'campaigns' %}
+{% block title %}WhatsApp Campaign{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">WhatsApp Campaigns</h2>
+    <p class="page-sub">Segment customers, compose a message, send direct via WhatsApp</p>
+  </div>
+</div>
+
+<div class="row g-4">
+
+  <!-- ── LEFT: Filters + Message ───────────────────────────────────── -->
+  <div class="col-lg-4">
+
+    <div class="card-section mb-3">
+      <div class="fw-bold mb-3" style="font-size:13px;text-transform:uppercase;
+           letter-spacing:.05em;color:var(--c-orange)">
+        <i class="bi bi-funnel-fill me-1"></i> Audience Filters
+      </div>
+
+      <!-- Branch -->
+      {% if current_user.is_admin %}
+      <div class="mb-3">
+        <label class="form-label fw-semibold small mb-1">Branch</label>
+        <select id="f-branch" class="form-select form-select-sm">
+          <option value="">All Branches</option>
+          {% for b in branches %}
+          <option value="{{ b.id }}">{{ b.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      <!-- VIP Tier -->
+      <div class="mb-3">
+        <label class="form-label fw-semibold small mb-1">Customer Tier</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% for t in vip_tiers %}
+          <label class="d-flex align-items-center gap-1" style="cursor:pointer;font-size:13px">
+            <input type="checkbox" class="tier-cb" value="{{ t.name }}"
+                   style="accent-color:{{ t.color }}">
+            <span style="color:{{ t.color }};font-weight:600">{{ t.icon }} {{ t.name }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        <div class="text-muted mt-1" style="font-size:11px">Leave unchecked = all tiers</div>
+      </div>
+
+      <!-- Category purchased -->
+      <div class="mb-3">
+        <label class="form-label fw-semibold small mb-1">Bought Category</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% for cat in categories %}
+          <label class="d-flex align-items-center gap-1" style="cursor:pointer;font-size:12px">
+            <input type="checkbox" class="cat-cb" value="{{ cat.id }}">
+            {{ cat.name }}
+          </label>
+          {% endfor %}
+        </div>
+        <div class="text-muted mt-1" style="font-size:11px">Leave unchecked = any category</div>
+      </div>
+
+      <!-- Last purchase -->
+      <div class="mb-3">
+        <label class="form-label fw-semibold small mb-1">Last Purchase</label>
+        <select id="f-lp" class="form-select form-select-sm">
+          <option value="any">Any time</option>
+          <option value="30">Last 30 days</option>
+          <option value="60">Last 60 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="180">Last 6 months</option>
+          <option value="never">Never bought</option>
+        </select>
+      </div>
+
+      <!-- Phone only -->
+      <div class="mb-3">
+        <label class="d-flex align-items-center gap-2" style="cursor:pointer;font-size:13px">
+          <input type="checkbox" id="f-phone" checked>
+          <span>Only customers with phone number</span>
+        </label>
+      </div>
+
+      <button id="btn-preview" class="btn btn-primary w-100">
+        <i class="bi bi-search me-1"></i> Find Audience
+      </button>
+    </div>
+
+    <!-- Message Composer -->
+    <div class="card-section">
+      <div class="fw-bold mb-3" style="font-size:13px;text-transform:uppercase;
+           letter-spacing:.05em;color:var(--c-orange)">
+        <i class="bi bi-chat-dots-fill me-1"></i> Message
+      </div>
+      <div class="text-muted mb-2" style="font-size:12px">
+        Use <code>{name}</code> for customer name. Keep it short and personal.
+      </div>
+      <textarea id="msg-body" class="form-control" rows="8"
+                style="font-size:13px;font-family:monospace">{{ default_msg }}</textarea>
+      <div class="d-flex justify-content-between mt-2">
+        <span id="msg-char" class="text-muted" style="font-size:11px">0 chars</span>
+        <button class="btn btn-ghost btn-sm" id="btn-reset-msg">Reset</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── RIGHT: Results ──────────────────────────────────────────────── -->
+  <div class="col-lg-8">
+
+    <!-- Status bar -->
+    <div id="status-bar" class="card-section mb-3 py-3 d-none">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div>
+          <span id="count-badge" class="badge rounded-pill me-2"
+                style="background:var(--c-orange);font-size:14px;padding:6px 14px">0</span>
+          <span class="fw-semibold" id="count-label">customers found</span>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+          <button id="btn-copy-numbers" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-clipboard"></i> Copy Numbers
+          </button>
+          <button id="btn-send-next" class="btn btn-success btn-sm d-none">
+            <i class="bi bi-whatsapp me-1"></i> Send to Next →
+          </button>
+          <span id="send-progress" class="text-muted small align-self-center d-none"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- No results -->
+    <div id="no-results" class="card-section text-center py-5 text-muted d-none">
+      <i class="bi bi-person-x" style="font-size:2.5rem;opacity:.3"></i>
+      <p class="mt-2 fw-semibold">No customers match these filters.</p>
+      <p class="small">Try fewer filters or a different tier/period.</p>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading" class="card-section text-center py-5 text-muted d-none">
+      <div class="spinner-border spinner-border-sm text-warning me-2"></div>
+      Searching customers…
+    </div>
+
+    <!-- Table -->
+    <div id="result-table-wrap" class="d-none">
+      <div class="card-section p-0" style="overflow-x:auto">
+        <table class="table table-hover mb-0" style="font-size:13px" id="result-table">
+          <thead style="background:var(--c-surface-low)">
+            <tr>
+              <th style="width:30px">
+                <input type="checkbox" id="chk-all" title="Select all">
+              </th>
+              <th>#</th>
+              <th>Customer</th>
+              <th>Phone</th>
+              <th>Tier</th>
+              <th>Last Purchase</th>
+              <th class="text-center">Send</th>
+            </tr>
+          </thead>
+          <tbody id="result-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Empty placeholder before search -->
+<div id="empty-state" class="col-12 mt-4">
+  <div class="card-section text-center py-5 text-muted">
+    <i class="bi bi-megaphone" style="font-size:3rem;opacity:.2"></i>
+    <p class="mt-3 fw-semibold">Set your filters and click <strong>Find Audience</strong></p>
+    <p class="small">You'll get a list of customers matching your criteria,<br>each with a ready WhatsApp link.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const DEFAULT_MSG = {{ default_msg | tojson }};
+const WA_LINK_URL = "{{ url_for('campaigns.wa_link') }}";
+
+const msgBox  = document.getElementById('msg-body');
+const charEl  = document.getElementById('msg-char');
+const tbody   = document.getElementById('result-tbody');
+
+let allCustomers = [];
+let sendIndex = 0;
+
+// char counter
+msgBox.addEventListener('input', () => {
+  charEl.textContent = msgBox.value.length + ' chars';
+});
+charEl.textContent = msgBox.value.length + ' chars';
+
+document.getElementById('btn-reset-msg').addEventListener('click', () => {
+  msgBox.value = DEFAULT_MSG;
+  charEl.textContent = msgBox.value.length + ' chars';
+});
+
+// select-all
+document.getElementById('chk-all').addEventListener('change', function() {
+  document.querySelectorAll('.row-chk').forEach(c => c.checked = this.checked);
+  updateSendNext();
+});
+
+function updateSendNext() {
+  const sel = document.querySelectorAll('.row-chk:checked');
+  const btn = document.getElementById('btn-send-next');
+  const prog = document.getElementById('send-progress');
+  if (sel.length > 0) {
+    btn.classList.remove('d-none');
+    prog.classList.remove('d-none');
+    sendIndex = 0;
+    updateSendProgress(sel.length);
+  } else {
+    btn.classList.add('d-none');
+    prog.classList.add('d-none');
+  }
+}
+
+function updateSendProgress(total) {
+  const remaining = document.querySelectorAll('.row-chk:checked').length;
+  document.getElementById('send-progress').textContent =
+    remaining + ' left to send';
+}
+
+// Find Audience
+document.getElementById('btn-preview').addEventListener('click', async () => {
+  const body = {
+    branch_id:     document.getElementById('f-branch')?.value || '',
+    tiers:         [...document.querySelectorAll('.tier-cb:checked')].map(c => c.value),
+    category_ids:  [...document.querySelectorAll('.cat-cb:checked')].map(c => c.value),
+    last_purchase: document.getElementById('f-lp').value,
+    has_phone:     document.getElementById('f-phone').checked,
+  };
+
+  show('loading');
+  hide('result-table-wrap', 'no-results', 'status-bar', 'empty-state');
+
+  try {
+    const res = await fetch("{{ url_for('campaigns.preview') }}", {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    allCustomers = data.customers || [];
+    renderTable(allCustomers);
+  } catch(e) {
+    alert('Error loading customers: ' + e.message);
+    hide('loading');
+  }
+});
+
+function renderTable(customers) {
+  hide('loading', 'empty-state');
+
+  const badge = document.getElementById('count-badge');
+  const label = document.getElementById('count-label');
+  badge.textContent = customers.length;
+  label.textContent = customers.length === 1 ? 'customer found' : 'customers found';
+
+  if (customers.length === 0) {
+    show('no-results');
+    hide('result-table-wrap', 'status-bar');
+    return;
+  }
+
+  show('status-bar', 'result-table-wrap');
+  hide('no-results');
+
+  tbody.innerHTML = '';
+  customers.forEach((c, i) => {
+    const spend = Number(c.lifetime_spend || 0).toLocaleString();
+    const lp    = c.last_purchase || '—';
+    const tr = document.createElement('tr');
+    tr.dataset.id    = c.id;
+    tr.dataset.name  = c.name;
+    tr.dataset.phone = c.phone_clean;
+    tr.innerHTML = `
+      <td><input type="checkbox" class="row-chk" data-idx="${i}"></td>
+      <td class="text-muted">${i+1}</td>
+      <td>
+        <a href="/customers/${c.id}" class="fw-semibold text-decoration-none">${esc(c.name)}</a>
+        <div class="text-muted" style="font-size:11px">${esc(c.branch)}</div>
+      </td>
+      <td class="text-muted">${esc(c.phone)}</td>
+      <td>
+        <span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px;
+               background:${c.tier_color}22;color:${c.tier_color}">
+          ${c.tier_icon} ${c.tier_name}
+        </span>
+      </td>
+      <td class="text-muted">${lp}</td>
+      <td class="text-center">
+        ${c.phone_clean
+          ? `<button class="btn btn-xs btn-wa" style="background:#25d366;color:#fff;border:none"
+               data-phone="${esc(c.phone_clean)}" data-name="${esc(c.name)}"
+               onclick="sendOne(this)" title="Send WhatsApp">
+               <i class="bi bi-whatsapp"></i>
+             </button>`
+          : `<span class="text-muted small">no phone</span>`}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // reset select-all & send-next
+  document.getElementById('chk-all').checked = false;
+  document.getElementById('btn-send-next').classList.add('d-none');
+  document.getElementById('send-progress').classList.add('d-none');
+  document.querySelectorAll('.row-chk').forEach(c =>
+    c.addEventListener('change', updateSendNext));
+}
+
+async function sendOne(btn) {
+  const phone = btn.dataset.phone;
+  const name  = btn.dataset.name;
+  const msg   = msgBox.value.replace(/{name}/g, name);
+  const params = new URLSearchParams({phone, name, message: msg});
+  const res = await fetch(WA_LINK_URL + '?' + params);
+  const data = await res.json();
+  if (data.url) {
+    window.open(data.url, '_blank');
+    btn.closest('tr').style.background = '#dcfce7';
+  }
+}
+
+// "Send to Next" — cycles through selected customers
+document.getElementById('btn-send-next').addEventListener('click', async () => {
+  const checked = [...document.querySelectorAll('.row-chk:checked')];
+  if (!checked.length) return;
+
+  const chk  = checked[0];
+  const row  = chk.closest('tr');
+  const name = row.dataset.name;
+  const phone= row.dataset.phone;
+
+  if (!phone) {
+    chk.checked = false;
+    updateSendNext();
+    return;
+  }
+
+  const msg   = msgBox.value.replace(/{name}/g, name);
+  const params = new URLSearchParams({phone, name, message: msg});
+  const res = await fetch(WA_LINK_URL + '?' + params);
+  const data = await res.json();
+  if (data.url) {
+    window.open(data.url, '_blank');
+    row.style.background = '#dcfce7';
+    chk.checked = false;
+    updateSendNext();
+  }
+});
+
+// Copy all numbers
+document.getElementById('btn-copy-numbers').addEventListener('click', () => {
+  const nums = allCustomers
+    .filter(c => c.phone_clean)
+    .map(c => c.phone_clean)
+    .join('\n');
+  navigator.clipboard.writeText(nums).then(() => {
+    const btn = document.getElementById('btn-copy-numbers');
+    btn.innerHTML = '<i class="bi bi-check-lg"></i> Copied!';
+    setTimeout(() => btn.innerHTML = '<i class="bi bi-clipboard"></i> Copy Numbers', 2000);
+  });
+});
+
+function show(...ids) { ids.forEach(id => document.getElementById(id)?.classList.remove('d-none')); }
+function hide(...ids) { ids.forEach(id => document.getElementById(id)?.classList.add('d-none')); }
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                      .replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

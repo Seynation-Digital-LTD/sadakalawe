@@ -1,0 +1,155 @@
+{% extends 'base.html' %}
+{% set active = 'repairs' %}
+{% block title %}Repair Jobs{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Repair Jobs</h2>
+    <p class="page-sub">Track devices left for service or repair</p>
+  </div>
+  <a href="{{ url_for('repairs.new') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i> New Job
+  </a>
+</div>
+
+<!-- Status tabs -->
+<div class="mb-3 d-flex gap-2 flex-wrap">
+  <a href="{{ url_for('repairs.list') }}"
+     class="btn btn-sm {% if not status_filter %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+    All
+    <span class="badge ms-1" style="background:rgba(255,255,255,.25)">
+      {{ counts.values() | sum }}
+    </span>
+  </a>
+  {% for key, label, color, bg in statuses %}
+  {% if key != 'cancelled' %}
+  <a href="{{ url_for('repairs.list', status=key, branch_id=branch_filter) }}"
+     class="btn btn-sm {% if status_filter == key %}btn-dark{% else %}btn-outline-secondary{% endif %}"
+     style="{% if status_filter == key %}background:{{ color }};border-color:{{ color }};{% endif %}">
+    {{ label }}
+    {% if counts[key] %}
+    <span class="badge ms-1"
+          style="background:{{ color }};color:#fff">{{ counts[key] }}</span>
+    {% endif %}
+  </a>
+  {% endif %}
+  {% endfor %}
+  <a href="{{ url_for('repairs.list', status='cancelled', branch_id=branch_filter) }}"
+     class="btn btn-sm btn-outline-danger ms-auto {% if status_filter == 'cancelled' %}active{% endif %}">
+    Cancelled
+  </a>
+</div>
+
+<!-- Branch filter -->
+{% if current_user.is_admin %}
+<form method="GET" class="mb-3">
+  <input type="hidden" name="status" value="{{ status_filter }}">
+  <div class="d-flex gap-2">
+    <select name="branch_id" class="form-select form-select-sm" style="width:auto"
+            onchange="this.form.submit()">
+      <option value="">All Branches</option>
+      {% for b in branches %}
+      <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>
+        {{ b.name }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+</form>
+{% endif %}
+
+{% if not jobs %}
+<div class="card-section text-center py-5 text-muted">
+  <i class="bi bi-tools" style="font-size:3rem;opacity:.2"></i>
+  <p class="mt-3 fw-semibold">
+    {% if status_filter %}No {{ status_filter | replace('_', ' ') }} jobs.
+    {% else %}No repair jobs yet.{% endif %}
+  </p>
+  <a href="{{ url_for('repairs.new') }}" class="btn btn-primary btn-sm mt-2">
+    <i class="bi bi-plus-lg me-1"></i> Log First Job
+  </a>
+</div>
+{% else %}
+<div class="card-section p-0" style="overflow-x:auto">
+  <table class="table table-hover mb-0" style="font-size:13px">
+    <thead style="background:var(--c-surface-low)">
+      <tr>
+        <th>Job #</th>
+        <th>Customer</th>
+        <th>Device</th>
+        <th>Problem</th>
+        <th>Status</th>
+        <th>Est. Ready</th>
+        <th>Cost (TZS)</th>
+        <th>Branch</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for j in jobs %}
+      {% set st = status_map[j.status] %}
+      <tr>
+        <td>
+          <a href="{{ url_for('repairs.view', job_id=j.id) }}"
+             class="fw-bold text-decoration-none" style="color:var(--c-orange)">
+            {{ j.job_number }}
+          </a>
+          <div class="text-muted" style="font-size:10px">{{ j.created_at[:10] }}</div>
+        </td>
+        <td>
+          {% if j.customer_name %}
+          <a href="{{ url_for('customers.view', customer_id=j.customer_id) }}"
+             class="text-decoration-none fw-semibold">{{ j.customer_name }}</a>
+          {% elif j.walkin_name %}
+          <span class="fw-semibold">{{ j.walkin_name }}</span>
+          <span class="badge bg-secondary ms-1" style="font-size:9px">Walk-in</span>
+          {% else %}
+          <span class="text-muted">—</span>
+          {% endif %}
+          {% if j.customer_phone or j.walkin_phone %}
+          <div class="text-muted" style="font-size:11px">
+            {{ j.customer_phone or j.walkin_phone }}
+          </div>
+          {% endif %}
+        </td>
+        <td>
+          <div class="fw-semibold">{{ j.device_make }} {{ j.device_model }}</div>
+          {% if j.color %}<div class="text-muted" style="font-size:11px">{{ j.color }}</div>{% endif %}
+          {% if j.imei %}<div class="text-muted" style="font-size:10px;font-family:monospace">{{ j.imei }}</div>{% endif %}
+        </td>
+        <td style="max-width:180px">
+          <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            {{ j.problem }}
+          </div>
+        </td>
+        <td>
+          <span class="badge rounded-pill"
+                style="background:{{ st.bg }};color:{{ st.color }};font-weight:700;font-size:11px">
+            {{ st.label }}
+          </span>
+        </td>
+        <td class="text-muted">{{ j.estimated_ready or '—' }}</td>
+        <td class="text-end">
+          {% if j.final_cost %}
+          <span class="fw-bold" style="color:var(--c-orange)">
+            {{ "{:,.0f}".format(j.final_cost) }}
+          </span>
+          {% elif j.estimated_cost %}
+          <span class="text-muted">~{{ "{:,.0f}".format(j.estimated_cost) }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-muted" style="font-size:11px">{{ j.branch_name }}</td>
+        <td>
+          <a href="{{ url_for('repairs.view', job_id=j.id) }}"
+             class="btn btn-xs btn-outline-secondary">
+            <i class="bi bi-eye"></i>
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -250,6 +250,43 @@ def _create_tables(db):
             created_at          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
 
+        CREATE TABLE IF NOT EXISTS repair_jobs (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_number       TEXT NOT NULL UNIQUE,
+            branch_id        INTEGER NOT NULL REFERENCES branches(id),
+            customer_id      INTEGER REFERENCES customers(id),
+            walkin_name      TEXT,
+            walkin_phone     TEXT,
+            device_make      TEXT NOT NULL,
+            device_model     TEXT NOT NULL,
+            imei             TEXT,
+            serial_number    TEXT,
+            color            TEXT,
+            problem          TEXT NOT NULL,
+            diagnosis        TEXT,
+            status           TEXT NOT NULL DEFAULT 'received',
+            technician       TEXT,
+            estimated_cost   REAL,
+            final_cost       REAL,
+            estimated_ready  TEXT,
+            collected_at     TEXT,
+            linked_document_id INTEGER REFERENCES documents(id),
+            device_sale_id   INTEGER REFERENCES device_sales(id),
+            notes            TEXT,
+            created_by       INTEGER REFERENCES users(id),
+            created_at       TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at       TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS repair_status_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id      INTEGER NOT NULL REFERENCES repair_jobs(id) ON DELETE CASCADE,
+            status      TEXT NOT NULL,
+            notes       TEXT,
+            changed_by  INTEGER REFERENCES users(id),
+            changed_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
         CREATE TABLE IF NOT EXISTS tradeins (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
             tradein_number      TEXT NOT NULL UNIQUE,

@@ -79,6 +79,8 @@ def create_app():
     from routes.commissions import bp as commissions_bp
     from routes.upgrade import bp as upgrade_bp
     from routes.devices import bp as devices_bp
+    from routes.campaigns import bp as campaigns_bp
+    from routes.repairs import bp as repairs_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(customers_bp)
@@ -95,6 +97,8 @@ def create_app():
     app.register_blueprint(commissions_bp)
     app.register_blueprint(upgrade_bp)
     app.register_blueprint(devices_bp)
+    app.register_blueprint(campaigns_bp)
+    app.register_blueprint(repairs_bp)
 
     from config import VIP_TIERS as _VIP_TIERS
     def _get_tier(spend):

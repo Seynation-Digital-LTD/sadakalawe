@@ -1,0 +1,225 @@
+{% extends 'base.html' %}
+{% set active = 'repairs' %}
+{% block title %}New Repair Job{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">New Repair Job</h2>
+    <p class="page-sub">Log a device for service or repair</p>
+  </div>
+  <a href="{{ url_for('repairs.list') }}" class="btn btn-ghost">
+    <i class="bi bi-arrow-left"></i> All Jobs
+  </a>
+</div>
+
+<form method="POST">
+  <div class="row g-4">
+
+    <!-- LEFT: Customer + Branch -->
+    <div class="col-lg-5">
+      <div class="card-section mb-4">
+        <h6 class="fw-bold mb-3">Customer</h6>
+
+        <!-- Existing customer search -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Search Existing Customer</label>
+          <div class="input-group">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input type="text" id="cust-search" class="form-control form-control-sm"
+                   placeholder="Type name or phone…" autocomplete="off">
+          </div>
+          <div id="cust-results" class="list-group mt-1 shadow-sm"
+               style="display:none;position:absolute;z-index:100;min-width:300px"></div>
+          <input type="hidden" name="customer_id" id="customer_id_field">
+          <div id="cust-selected" class="mt-2 d-none">
+            <span class="badge" style="background:#dcfce7;color:#166534;font-size:12px">
+              <i class="bi bi-person-check me-1"></i>
+              <span id="cust-sel-name"></span>
+              <button type="button" class="btn-close btn-close ms-1" id="cust-clear"
+                      style="font-size:9px"></button>
+            </span>
+          </div>
+        </div>
+
+        <div class="text-center text-muted my-2" style="font-size:12px">— or walk-in —</div>
+
+        <div class="mb-2">
+          <label class="form-label fw-semibold small">Walk-in Name</label>
+          <input type="text" name="walkin_name" class="form-control form-control-sm"
+                 id="walkin_name" placeholder="e.g. John Doe"
+                 value="{{ form.get('walkin_name', '') }}">
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold small">Walk-in Phone</label>
+          <input type="text" name="walkin_phone" class="form-control form-control-sm"
+                 id="walkin_phone" placeholder="+255 7XX XXX XXX"
+                 value="{{ form.get('walkin_phone', '') }}">
+        </div>
+      </div>
+
+      <div class="card-section">
+        <h6 class="fw-bold mb-3">Branch & Technician</h6>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Branch <span class="text-danger">*</span></label>
+          <select name="branch_id" class="form-select form-select-sm" required>
+            {% for b in branches %}
+            <option value="{{ b.id }}"
+              {% if b.id == default_branch %}selected{% endif %}>{{ b.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Technician / Assigned to</label>
+          <input type="text" name="technician" class="form-control form-control-sm"
+                 placeholder="Name of person handling this"
+                 value="{{ form.get('technician', '') }}">
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Device + Problem + Cost -->
+    <div class="col-lg-7">
+      <div class="card-section mb-4">
+        <h6 class="fw-bold mb-3">Device Details</h6>
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Make <span class="text-danger">*</span></label>
+            <input type="text" name="device_make" list="make-list"
+                   class="form-control form-control-sm" required
+                   placeholder="e.g. Apple, Samsung…"
+                   value="{{ form.get('device_make', '') }}">
+            <datalist id="make-list">
+              <option value="Apple">
+              <option value="Samsung">
+              <option value="Lenovo">
+              <option value="HP">
+              <option value="Dell">
+              <option value="ASUS">
+              <option value="JBL">
+              <option value="Anker">
+              <option value="Sony">
+            </datalist>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Model <span class="text-danger">*</span></label>
+            <input type="text" name="device_model" class="form-control form-control-sm" required
+                   placeholder="e.g. iPhone 15 Pro, Galaxy S24…"
+                   value="{{ form.get('device_model', '') }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">IMEI / Serial</label>
+            <input type="text" name="imei" class="form-control form-control-sm"
+                   placeholder="IMEI or serial number"
+                   value="{{ form.get('imei', '') }}" style="font-family:monospace">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Color</label>
+            <input type="text" name="color" class="form-control form-control-sm"
+                   placeholder="e.g. Midnight, Silver…"
+                   value="{{ form.get('color', '') }}">
+          </div>
+        </div>
+      </div>
+
+      <div class="card-section mb-4">
+        <h6 class="fw-bold mb-3">Problem & Cost</h6>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Problem Description <span class="text-danger">*</span></label>
+          <textarea name="problem" class="form-control form-control-sm" rows="3" required
+                    placeholder="Describe the issue the customer reported…">{{ form.get('problem', '') }}</textarea>
+        </div>
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Estimated Cost (TZS)</label>
+            <input type="number" name="estimated_cost" class="form-control form-control-sm"
+                   step="500" min="0" placeholder="0"
+                   value="{{ form.get('estimated_cost', '') }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Estimated Ready Date</label>
+            <input type="date" name="estimated_ready" class="form-control form-control-sm"
+                   value="{{ form.get('estimated_ready', '') }}">
+          </div>
+        </div>
+      </div>
+
+      <div class="card-section mb-4">
+        <h6 class="fw-bold mb-3">Notes</h6>
+        <textarea name="notes" class="form-control form-control-sm" rows="2"
+                  placeholder="Any additional notes…">{{ form.get('notes', '') }}</textarea>
+      </div>
+
+      <div class="d-flex gap-3">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-tools me-1"></i> Create Repair Job
+        </button>
+        <a href="{{ url_for('repairs.list') }}" class="btn btn-ghost">Cancel</a>
+      </div>
+    </div>
+
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SEARCH_URL = "{{ url_for('repairs.customer_search') }}";
+const searchInput = document.getElementById('cust-search');
+const results     = document.getElementById('cust-results');
+const hiddenField = document.getElementById('customer_id_field');
+const selected    = document.getElementById('cust-selected');
+const selName     = document.getElementById('cust-sel-name');
+const walkinName  = document.getElementById('walkin_name');
+const walkinPhone = document.getElementById('walkin_phone');
+let debounce;
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(debounce);
+  const q = searchInput.value.trim();
+  if (q.length < 2) { results.style.display = 'none'; return; }
+  debounce = setTimeout(async () => {
+    const res  = await fetch(SEARCH_URL + '?q=' + encodeURIComponent(q));
+    const data = await res.json();
+    results.innerHTML = '';
+    if (!data.length) { results.style.display = 'none'; return; }
+    data.forEach(c => {
+      const a = document.createElement('a');
+      a.className = 'list-group-item list-group-item-action py-2';
+      a.style.fontSize = '13px';
+      a.innerHTML = `<strong>${esc(c.name)}</strong> <span class="text-muted ms-2">${esc(c.phone||'')}</span>`;
+      a.addEventListener('click', () => {
+        hiddenField.value = c.id;
+        selName.textContent = c.name;
+        selected.classList.remove('d-none');
+        walkinName.disabled  = true;
+        walkinPhone.disabled = true;
+        walkinName.value = '';
+        walkinPhone.value = '';
+        searchInput.value = '';
+        results.style.display = 'none';
+      });
+      results.appendChild(a);
+    });
+    results.style.display = 'block';
+  }, 250);
+});
+
+document.getElementById('cust-clear').addEventListener('click', () => {
+  hiddenField.value = '';
+  selName.textContent = '';
+  selected.classList.add('d-none');
+  walkinName.disabled  = false;
+  walkinPhone.disabled = false;
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#cust-search') && !e.target.closest('#cust-results'))
+    results.style.display = 'none';
+});
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+{% endblock %}
