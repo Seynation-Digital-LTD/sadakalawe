@@ -13,8 +13,11 @@ def send_document_email(to_email, subject, body_html, pdf_bytes, filename, app_c
 
     Returns (True, None) on success, (False, error_str) on failure.
     """
-    mail_server   = app_config.get('MAIL_SERVER',   'smtp.gmail.com')
-    mail_port     = int(app_config.get('MAIL_PORT',   465))
+    mail_server   = app_config.get('MAIL_SERVER',   'smtp.gmail.com') or 'smtp.gmail.com'
+    try:
+        mail_port = int(app_config.get('MAIL_PORT', 465) or 465)
+    except (ValueError, TypeError):
+        mail_port = 465
     mail_username = app_config.get('MAIL_USERNAME',  '')
     mail_password = app_config.get('MAIL_PASSWORD',  '')
     mail_from     = app_config.get('MAIL_FROM',      '') or mail_username

@@ -33,9 +33,13 @@ def get_mail_config():
         'MAIL_PASSWORD': current_app.config.get('MAIL_PASSWORD', ''),
         'MAIL_FROM':     current_app.config.get('MAIL_FROM',     ''),
     }
-    rows = query_db("SELECT key, value FROM app_settings WHERE key LIKE 'MAIL_%'")
-    for row in rows:
-        config[row['key']] = row['value']
+    try:
+        rows = query_db("SELECT key, value FROM app_settings WHERE key LIKE 'MAIL_%'")
+        for row in rows:
+            if row['value']:   # don't override with empty DB values
+                config[row['key']] = row['value']
+    except Exception:
+        pass   # table may not exist yet on first run before restart
     return config
 
 

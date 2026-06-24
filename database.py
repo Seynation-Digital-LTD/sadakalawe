@@ -393,12 +393,18 @@ def _run_migrations(db):
         "ALTER TABLE products ADD COLUMN image_path TEXT",
         "ALTER TABLE products ADD COLUMN barcode TEXT",
         "ALTER TABLE users ADD COLUMN commission_rate REAL NOT NULL DEFAULT 0",
+        # app_settings table — added 2026-06-25, safe to re-run (CREATE IF NOT EXISTS)
+        """CREATE TABLE IF NOT EXISTS app_settings (
+            key        TEXT PRIMARY KEY,
+            value      TEXT,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        )""",
     ]
     for sql in migrations:
         try:
             db.execute(sql)
         except Exception:
-            pass  # column already exists
+            pass  # column/table already exists
 
 
 def _seed_data(db):

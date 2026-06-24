@@ -761,94 +761,99 @@ def whatsapp_share(doc_id):
 def email_document(doc_id):
     """Email the document PDF to a given address."""
     from routes.settings import get_mail_config
-    doc = _fetch_doc_full(doc_id)
-    if not doc:
-        abort(404)
+    back = request.form.get('_next') or url_for('documents.view', doc_id=doc_id)
+    try:
+        doc = _fetch_doc_full(doc_id)
+        if not doc:
+            abort(404)
 
-    mail_config = get_mail_config()
-    if not mail_config.get('MAIL_USERNAME') or not mail_config.get('MAIL_PASSWORD'):
-        flash('Email not configured — go to Settings → Email to enter your Gmail credentials.', 'warning')
-        redirect_to = request.form.get('_next') or url_for('documents.view', doc_id=doc_id)
-        return redirect(redirect_to)
+        mail_config = get_mail_config()
+        if not mail_config.get('MAIL_USERNAME') or not mail_config.get('MAIL_PASSWORD'):
+            flash('Email not configured — go to Settings (admin sidebar) to enter Gmail credentials.', 'warning')
+            return redirect(back)
 
-    to_email = request.form.get('to_email', '').strip()
-    message  = request.form.get('message', '').strip()
+        to_email = request.form.get('to_email', '').strip()
+        message  = request.form.get('message', '').strip()
 
-    if not to_email:
-        flash('Please enter an email address.', 'danger')
-        return redirect(url_for('documents.view', doc_id=doc_id))
+        if not to_email:
+            flash('Please enter an email address.', 'danger')
+            return redirect(back)
 
-    customer = (query_db("SELECT * FROM customers WHERE id=?",
-                         (doc['customer_id'],), one=True)
-                if doc['customer_id']
-                else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
-    items  = query_db(
-        "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
-    branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
-              'short_code': doc['short_code']}
+        customer = (query_db("SELECT * FROM customers WHERE id=?",
+                             (doc['customer_id'],), one=True)
+                    if doc['customer_id']
+                    else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
+        items  = query_db(
+            "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
+        branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
+                  'short_code': doc['short_code']}
 
-    pdf_buf = generate_pdf(dict(doc),
-                           dict(customer) if customer else None,
-                           [dict(i) for i in items],
-                           branch, doc['staff_name'])
-    pdf_bytes = pdf_buf.read()
+        pdf_buf   = generate_pdf(dict(doc),
+                                 dict(customer) if customer else None,
+                                 [dict(i) for i in items],
+                                 branch, doc['staff_name'])
+        pdf_bytes = pdf_buf.read()
 
-    label        = DOC_TYPE_LABELS.get(doc['doc_type'], doc['doc_type'])
-    customer_name = doc['customer_name'] or 'Valued Customer'
-    subject      = f"Sadakalawe Enterprises — {label} {doc['doc_number']}"
+        label         = DOC_TYPE_LABELS.get(doc['doc_type'], doc['doc_type'])
+        customer_name = doc['customer_name'] or 'Valued Customer'
+        subject       = f"Sadakalawe Enterprises — {label} {doc['doc_number']}"
 
-    personal_block = ''
-    if message:
-        personal_block = f'<p style="margin:16px 0;color:#594138">{message}</p>'
+        personal_block = ''
+        if message:
+            personal_block = f'<p style="margin:16px 0;color:#594138">{message}</p>'
 
-    body_html = f"""
-    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
-      <div style="background:#F26522;padding:18px 28px;border-radius:8px 8px 0 0">
-        <h2 style="color:#fff;margin:0;font-size:18px">Sadakalawe Enterprises</h2>
-      </div>
-      <div style="background:#fff;border:1px solid #e1bfb3;border-top:none;padding:24px 28px;border-radius:0 0 8px 8px">
-        <p style="color:#1b1c1c;font-size:15px">Dear {customer_name},</p>
-        <p style="color:#5f5e5e">Please find attached your <strong>{label}</strong>
-           <strong>{doc['doc_number']}</strong> from Sadakalawe Enterprises.</p>
-        <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:14px 18px;margin:18px 0">
-          <p style="margin:0 0 6px 0;color:#594138;font-size:13px">Document Summary</p>
-          <p style="margin:0;color:#1b1c1c;font-size:20px;font-weight:bold">
-            TZS {float(doc.get('total', 0)):,.0f}
-          </p>
-          <p style="margin:4px 0 0 0;color:#5f5e5e;font-size:12px">
-            {label} &middot; {str(doc.get('created_at', ''))[:10]}
-          </p>
+        body_html = f"""
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
+          <div style="background:#F26522;padding:18px 28px;border-radius:8px 8px 0 0">
+            <h2 style="color:#fff;margin:0;font-size:18px">Sadakalawe Enterprises</h2>
+          </div>
+          <div style="background:#fff;border:1px solid #e1bfb3;border-top:none;padding:24px 28px;border-radius:0 0 8px 8px">
+            <p style="color:#1b1c1c;font-size:15px">Dear {customer_name},</p>
+            <p style="color:#5f5e5e">Please find attached your <strong>{label}</strong>
+               <strong>{doc['doc_number']}</strong> from Sadakalawe Enterprises.</p>
+            <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:14px 18px;margin:18px 0">
+              <p style="margin:0 0 6px 0;color:#594138;font-size:13px">Document Summary</p>
+              <p style="margin:0;color:#1b1c1c;font-size:20px;font-weight:bold">
+                TZS {float(doc.get('total', 0)):,.0f}
+              </p>
+              <p style="margin:4px 0 0 0;color:#5f5e5e;font-size:12px">
+                {label} &middot; {str(doc.get('created_at', ''))[:10]}
+              </p>
+            </div>
+            {personal_block}
+            <p style="color:#5f5e5e;font-size:13px">
+              If you have any questions, please contact us at
+              <a href="tel:+255768596006" style="color:#F26522">+255 768 596 006</a> or reply to this email.
+            </p>
+            <hr style="border:none;border-top:1px solid #e1bfb3;margin:20px 0">
+            <p style="color:#9ca3af;font-size:11px;margin:0">
+              Sadakalawe Enterprises &middot; Bondeni Street, Arusha &amp; Kariakoo, Dar es Salaam
+              &middot; TIN: 164-334-864 &middot; sadakalawe.com
+            </p>
+          </div>
         </div>
-        {personal_block}
-        <p style="color:#5f5e5e;font-size:13px">
-          If you have any questions, please contact us at
-          <a href="tel:+255768596006" style="color:#F26522">+255 768 596 006</a> or reply to this email.
-        </p>
-        <hr style="border:none;border-top:1px solid #e1bfb3;margin:20px 0">
-        <p style="color:#9ca3af;font-size:11px;margin:0">
-          Sadakalawe Enterprises &middot; Bondeni Street, Arusha &amp; Kariakoo, Dar es Salaam
-          &middot; TIN: 164-334-864 &middot; sadakalawe.com
-        </p>
-      </div>
-    </div>
-    """
+        """
 
-    ok, err = send_document_email(
-        to_email=to_email,
-        subject=subject,
-        body_html=body_html,
-        pdf_bytes=pdf_bytes,
-        filename=f"{doc['doc_number']}.pdf",
-        app_config=mail_config,
-    )
+        ok, err = send_document_email(
+            to_email=to_email,
+            subject=subject,
+            body_html=body_html,
+            pdf_bytes=pdf_bytes,
+            filename=f"{doc['doc_number']}.pdf",
+            app_config=mail_config,
+        )
 
-    if ok:
-        flash(f'Document emailed to {to_email}.', 'success')
-    else:
-        flash(f'Email failed: {err}', 'danger')
+        if ok:
+            flash(f'Document emailed to {to_email}.', 'success')
+        else:
+            flash(f'Email failed: {err}', 'danger')
 
-    redirect_to = request.form.get('_next') or url_for('documents.view', doc_id=doc_id)
-    return redirect(redirect_to)
+        return redirect(back)
+
+    except Exception as exc:
+        current_app.logger.exception('email_document crashed for doc_id=%s', doc_id)
+        flash(f'Unexpected error: {exc}', 'danger')
+        return redirect(back)
 
 
 @bp.route('/<int:doc_id>/convert', methods=['POST'])
