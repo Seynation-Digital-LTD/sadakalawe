@@ -760,13 +760,16 @@ def whatsapp_share(doc_id):
 @login_required
 def email_document(doc_id):
     """Email the document PDF to a given address."""
+    from routes.settings import get_mail_config
     doc = _fetch_doc_full(doc_id)
     if not doc:
         abort(404)
 
-    if not current_app.config.get('MAIL_USERNAME'):
-        flash('Email not configured — set MAIL_USERNAME and MAIL_PASSWORD environment variables', 'warning')
-        return redirect(url_for('documents.view', doc_id=doc_id))
+    mail_config = get_mail_config()
+    if not mail_config.get('MAIL_USERNAME') or not mail_config.get('MAIL_PASSWORD'):
+        flash('Email not configured — go to Settings → Email to enter your Gmail credentials.', 'warning')
+        redirect_to = request.form.get('_next') or url_for('documents.view', doc_id=doc_id)
+        return redirect(redirect_to)
 
     to_email = request.form.get('to_email', '').strip()
     message  = request.form.get('message', '').strip()
@@ -836,7 +839,7 @@ def email_document(doc_id):
         body_html=body_html,
         pdf_bytes=pdf_bytes,
         filename=f"{doc['doc_number']}.pdf",
-        app_config=current_app.config,
+        app_config=mail_config,
     )
 
     if ok:
@@ -844,7 +847,8 @@ def email_document(doc_id):
     else:
         flash(f'Email failed: {err}', 'danger')
 
-    return redirect(url_for('documents.view', doc_id=doc_id))
+    redirect_to = request.form.get('_next') or url_for('documents.view', doc_id=doc_id)
+    return redirect(redirect_to)
 
 
 @bp.route('/<int:doc_id>/convert', methods=['POST'])

@@ -338,6 +338,12 @@ def _create_tables(db):
             changed_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
 
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key         TEXT PRIMARY KEY,
+            value       TEXT,
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
         CREATE TABLE IF NOT EXISTS tradeins (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
             tradein_number      TEXT NOT NULL UNIQUE,

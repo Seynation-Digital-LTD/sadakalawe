@@ -83,6 +83,7 @@ def create_app():
     from routes.repairs import bp as repairs_bp
     from routes.cash_recon import bp as cash_recon_bp
     from routes.returns import bp as returns_bp
+    from routes.settings import bp as settings_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(customers_bp)
@@ -103,6 +104,7 @@ def create_app():
     app.register_blueprint(repairs_bp)
     app.register_blueprint(cash_recon_bp)
     app.register_blueprint(returns_bp)
+    app.register_blueprint(settings_bp)
 
     from config import VIP_TIERS as _VIP_TIERS
     def _get_tier(spend):
