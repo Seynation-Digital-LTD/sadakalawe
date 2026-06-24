@@ -139,8 +139,7 @@
 {% endif %}
 {% endfor %}
 
-{% set total_rows = buckets | sum(attribute='rows') | list | length %}
-{% if total_rows == 0 %}
+{% if not (buckets | selectattr('rows') | list) %}
 <div class="card-section text-center py-5 text-muted">
   <i class="bi bi-emoji-smile" style="font-size:2.5rem;opacity:.3"></i>
   <p class="mt-2 fw-semibold">No outstanding debts right now. 🎉</p>
