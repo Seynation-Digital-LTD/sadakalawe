@@ -124,14 +124,31 @@ def adjust():
               supplier, notes, current_user.id))
         movement_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
 
+        # Details applied to every unit in this intake batch
+        u_color   = request.form.get('unit_color', '').strip() or None
+        u_storage = request.form.get('unit_storage', '').strip() or None
+        u_cond    = request.form.get('unit_condition', '').strip() or 'new'
+        try:
+            u_cost = float(request.form.get('unit_cost_price', 0) or 0)
+        except ValueError:
+            u_cost = 0
+
+        skipped = []
         for imei in imeis:
             try:
-                db.execute(
-                    "INSERT INTO device_imeis (product_id, branch_id, imei, stock_movement_id) VALUES (?,?,?,?)",
-                    (product_id, branch_id, imei, movement_id))
+                db.execute("""
+                    INSERT INTO device_imeis
+                      (product_id, branch_id, imei, stock_movement_id,
+                       color, storage, condition, cost_price)
+                    VALUES (?,?,?,?,?,?,?,?)
+                """, (product_id, branch_id, imei, movement_id,
+                      u_color, u_storage, u_cond, u_cost))
             except Exception:
-                pass  # skip duplicate IMEIs silently
+                skipped.append(imei)  # duplicate IMEI — already in the system
         db.commit()
+
+        if skipped:
+            flash('Already registered, skipped: ' + ', '.join(skipped), 'warning')
 
         # Update product_stock table
         execute_db("""
@@ -293,6 +310,118 @@ def movements():
                            moves=moves, branches=branches, products=products,
                            branch_filter=branch_id, product_filter=product_id,
                            imei_map=imei_map)
+
+
+@bp.route('/units')
+@login_required
+def units():
+    """Unit inventory — every individually tracked device with its own IMEI + details."""
+    q          = request.args.get('q', '').strip()
+    product_id = request.args.get('product_id', '')
+    branch_id  = request.args.get('branch_id', '')
+    status     = request.args.get('status', '')
+
+    sql = """
+        SELECT di.*,
+               p.model AS product_model, p.brand_category, p.price,
+               b.name  AS branch_name,
+               d.doc_number AS sold_doc_number,
+               COALESCE(c.name, d.walkin_name) AS sold_to
+        FROM device_imeis di
+        LEFT JOIN products  p ON p.id = di.product_id
+        LEFT JOIN branches  b ON b.id = di.branch_id
+        LEFT JOIN documents d ON d.id = di.sold_document_id
+        LEFT JOIN customers c ON c.id = d.customer_id
+        WHERE 1=1
+    """
+    args = []
+    if q:
+        sql += """ AND (di.imei LIKE ? OR di.serial_number LIKE ?
+                        OR p.model LIKE ? OR di.color LIKE ?)"""
+        args += [f'%{q}%'] * 4
+    if product_id:
+        sql += " AND di.product_id=?"
+        args.append(product_id)
+    if branch_id:
+        sql += " AND di.branch_id=?"
+        args.append(branch_id)
+    if status:
+        sql += " AND di.status=?"
+        args.append(status)
+
+    sql += " ORDER BY p.model, di.status, di.created_at DESC LIMIT 500"
+    rows = query_db(sql, args)
+
+    # Per-product summary so "5 Google Pixels" reads as 5 distinct devices
+    summary = query_db("""
+        SELECT p.id, p.brand_category, p.model,
+               SUM(CASE WHEN di.status='in_stock' THEN 1 ELSE 0 END) AS in_stock,
+               SUM(CASE WHEN di.status='sold'     THEN 1 ELSE 0 END) AS sold,
+               COUNT(*) AS total
+        FROM device_imeis di
+        JOIN products p ON p.id = di.product_id
+        GROUP BY p.id
+        ORDER BY p.brand_category, p.model
+    """)
+
+    branches = query_db("SELECT * FROM branches ORDER BY name")
+    products = query_db(
+        "SELECT id, brand_category, model FROM products WHERE track_units=1 ORDER BY brand_category, model")
+
+    return render_template('stock/units.html',
+                           units=rows, summary=summary,
+                           branches=branches, products=products,
+                           q=q, product_filter=product_id,
+                           branch_filter=branch_id, status_filter=status)
+
+
+@bp.route('/units/<int:unit_id>/edit', methods=['POST'])
+@login_required
+def unit_edit(unit_id):
+    """Update one unit's details (colour, storage, condition, cost, notes, serial)."""
+    unit = query_db("SELECT * FROM device_imeis WHERE id=?", (unit_id,), one=True)
+    if not unit:
+        flash('Unit not found.', 'danger')
+        return redirect(url_for('stock.units'))
+
+    try:
+        cost = float(request.form.get('cost_price', 0) or 0)
+    except ValueError:
+        cost = unit['cost_price']
+
+    execute_db("""
+        UPDATE device_imeis SET
+          serial_number=?, color=?, storage=?, condition=?, cost_price=?, notes=?
+        WHERE id=?
+    """, (
+        request.form.get('serial_number', '').strip() or None,
+        request.form.get('color', '').strip() or None,
+        request.form.get('storage', '').strip() or None,
+        request.form.get('condition', 'new').strip() or 'new',
+        cost,
+        request.form.get('notes', '').strip() or None,
+        unit_id,
+    ))
+    flash(f'Unit {unit["imei"]} updated.', 'success')
+    return redirect(request.referrer or url_for('stock.units'))
+
+
+@bp.route('/api/units')
+@login_required
+def api_units():
+    """JSON: in-stock units of a product at a branch — used by the invoice screen."""
+    product_id = request.args.get('product_id')
+    branch_id  = request.args.get('branch_id')
+    if not product_id:
+        return jsonify([])
+    sql = "SELECT id, imei, serial_number, color, storage, condition FROM device_imeis " \
+          "WHERE product_id=? AND status='in_stock'"
+    args = [product_id]
+    if branch_id:
+        sql += " AND branch_id=?"
+        args.append(branch_id)
+    sql += " ORDER BY created_at"
+    return jsonify([dict(r) for r in query_db(sql, args)])
 
 
 @bp.route('/api/product-stock')

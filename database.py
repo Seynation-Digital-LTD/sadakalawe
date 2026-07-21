@@ -393,6 +393,18 @@ def _run_migrations(db):
         "ALTER TABLE products ADD COLUMN image_path TEXT",
         "ALTER TABLE products ADD COLUMN barcode TEXT",
         "ALTER TABLE users ADD COLUMN commission_rate REAL NOT NULL DEFAULT 0",
+        # Per-unit (IMEI/serial) tracking — added 2026-07-22
+        "ALTER TABLE products ADD COLUMN track_units INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE device_imeis ADD COLUMN serial_number TEXT",
+        "ALTER TABLE device_imeis ADD COLUMN color TEXT",
+        "ALTER TABLE device_imeis ADD COLUMN storage TEXT",
+        "ALTER TABLE device_imeis ADD COLUMN condition TEXT NOT NULL DEFAULT 'new'",
+        "ALTER TABLE device_imeis ADD COLUMN cost_price REAL NOT NULL DEFAULT 0",
+        "ALTER TABLE device_imeis ADD COLUMN notes TEXT",
+        "ALTER TABLE device_imeis ADD COLUMN sold_document_id INTEGER",
+        "ALTER TABLE device_imeis ADD COLUMN sold_at TEXT",
+        "CREATE INDEX IF NOT EXISTS idx_device_imeis_product ON device_imeis(product_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_device_imeis_imei ON device_imeis(imei)",
         # app_settings table — added 2026-06-25, safe to re-run (CREATE IF NOT EXISTS)
         """CREATE TABLE IF NOT EXISTS app_settings (
             key        TEXT PRIMARY KEY,

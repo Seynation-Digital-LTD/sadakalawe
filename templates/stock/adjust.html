@@ -96,6 +96,35 @@
                     placeholder="Enter IMEI numbers here, one per line&#10;Example:&#10;358240051111110&#10;358240051111111"
                     style="font-family:monospace;font-size:13px"></textarea>
           <div class="field-hint">Leave blank if not applicable (e.g. accessories, cables).</div>
+
+          <div class="row g-2 mt-2">
+            <div class="col-md-3">
+              <label class="field-label">Colour</label>
+              <input type="text" name="unit_color" class="form-control" placeholder="e.g. Obsidian">
+            </div>
+            <div class="col-md-3">
+              <label class="field-label">Storage</label>
+              <input type="text" name="unit_storage" class="form-control" placeholder="e.g. 256GB">
+            </div>
+            <div class="col-md-3">
+              <label class="field-label">Condition</label>
+              <select name="unit_condition" class="form-select">
+                <option value="new">New</option>
+                <option value="open_box">Open box</option>
+                <option value="refurbished">Refurbished</option>
+                <option value="used">Used</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="field-label">Cost / unit (TZS)</label>
+              <input type="number" name="unit_cost_price" class="form-control" min="0" step="1000"
+                     placeholder="0">
+            </div>
+          </div>
+          <div class="field-hint">
+            These details are saved on every IMEI in this batch. You can edit any single unit
+            afterwards from the Unit Inventory page.
+          </div>
         </div>
 
         <div class="mb-4">

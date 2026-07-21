@@ -91,7 +91,11 @@ def register():
 
     # Also update device_imeis status to 'sold' if IMEI is tracked in stock
     if imei:
-        execute_db("UPDATE device_imeis SET status='sold' WHERE imei=?", (imei,))
+        execute_db("""
+            UPDATE device_imeis
+               SET status='sold', sold_document_id=?, sold_at=datetime('now','localtime')
+             WHERE imei=?
+        """, (doc_id, imei))
 
     row = query_db("""
         SELECT ds.*, p.model AS product_model
@@ -120,7 +124,11 @@ def delete(device_id):
         abort(404)
     # Restore IMEI status in stock tracker
     if row['imei']:
-        execute_db("UPDATE device_imeis SET status='in_stock' WHERE imei=?", (row['imei'],))
+        execute_db("""
+            UPDATE device_imeis
+               SET status='in_stock', sold_document_id=NULL, sold_at=NULL
+             WHERE imei=?
+        """, (row['imei'],))
     execute_db("DELETE FROM device_sales WHERE id=?", (device_id,))
     return jsonify(ok=True)
 

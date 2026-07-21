@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+{% set active = 'stock' %}
+{% block title %}Unit Inventory{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Unit Inventory</h2>
+    <p class="page-sub">Every tracked device listed individually — IMEI, details, and where it went</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('stock.index') }}" class="btn btn-ghost">
+      <i class="bi bi-box-seam"></i> Stock Levels
+    </a>
+    <a href="{{ url_for('stock.adjust') }}" class="btn btn-primary">
+      <i class="bi bi-plus-lg"></i> Add Units
+    </a>
+  </div>
+</div>
+
+<!-- Per-product summary -->
+{% if summary %}
+<div class="card-section mb-3">
+  <h6 class="fw-semibold mb-3">By Product</h6>
+  <div class="d-flex flex-wrap gap-2">
+    {% for s in summary %}
+    <a href="{{ url_for('stock.units', product_id=s.id) }}"
+       class="btn btn-ghost btn-sm d-flex align-items-center gap-2"
+       style="border:1px solid var(--c-border);border-radius:8px">
+      <strong>{{ s.brand_category }} {{ s.model }}</strong>
+      <span class="badge bg-success">{{ s.in_stock }} in stock</span>
+      <span class="badge bg-secondary">{{ s.sold }} sold</span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Filters -->
+<div class="card-section mb-3">
+  <form class="row g-2 align-items-end" method="GET">
+    <div class="col-md-3">
+      <label class="field-label">Search</label>
+      <input type="text" name="q" value="{{ q }}" class="form-control"
+             placeholder="IMEI, serial, model, colour…">
+    </div>
+    <div class="col-md-3">
+      <label class="field-label">Product</label>
+      <select name="product_id" class="form-select">
+        <option value="">All products</option>
+        {% for p in products %}
+        <option value="{{ p.id }}" {% if product_filter|string == p.id|string %}selected{% endif %}>
+          {{ p.brand_category }} {{ p.model }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="field-label">Branch</label>
+      <select name="branch_id" class="form-select">
+        <option value="">All</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}" {% if branch_filter|string == b.id|string %}selected{% endif %}>{{ b.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="field-label">Status</label>
+      <select name="status" class="form-select">
+        <option value="">All</option>
+        <option value="in_stock" {% if status_filter == 'in_stock' %}selected{% endif %}>In stock</option>
+        <option value="sold"     {% if status_filter == 'sold' %}selected{% endif %}>Sold</option>
+      </select>
+    </div>
+    <div class="col-md-2 d-flex gap-2">
+      <button type="submit" class="btn btn-primary flex-grow-1">Filter</button>
+      <a href="{{ url_for('stock.units') }}" class="btn btn-ghost">Clear</a>
+    </div>
+  </form>
+</div>
+
+<!-- Units -->
+<div class="card-section">
+  {% if units %}
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>IMEI</th>
+          <th>Serial</th>
+          <th>Colour</th>
+          <th>Storage</th>
+          <th>Condition</th>
+          <th>Branch</th>
+          <th>Status</th>
+          <th>Sold to</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in units %}
+        <tr>
+          <td class="fw-semibold">{{ u.brand_category }} {{ u.product_model }}</td>
+          <td style="font-family:monospace">{{ u.imei }}</td>
+          <td style="font-family:monospace">{{ u.serial_number or '—' }}</td>
+          <td>{{ u.color or '—' }}</td>
+          <td>{{ u.storage or '—' }}</td>
+          <td>{{ (u.condition or 'new')|replace('_', ' ')|title }}</td>
+          <td>{{ u.branch_name or '—' }}</td>
+          <td>
+            {% if u.status == 'sold' %}
+            <span class="badge bg-secondary">Sold</span>
+            {% else %}
+            <span class="badge bg-success">In stock</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if u.sold_doc_number %}
+            <div class="small">{{ u.sold_to or 'Walk-in' }}</div>
+            <div class="small text-muted">{{ u.sold_doc_number }}</div>
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-end">
+            <button class="btn btn-ghost btn-sm" data-bs-toggle="collapse"
+                    data-bs-target="#unit-{{ u.id }}" title="Edit details">
+              <i class="bi bi-pencil"></i>
+            </button>
+          </td>
+        </tr>
+        <tr class="collapse" id="unit-{{ u.id }}">
+          <td colspan="10" style="background:var(--c-surface-2, #faf7f5)">
+            <form method="POST" action="{{ url_for('stock.unit_edit', unit_id=u.id) }}"
+                  class="row g-2 align-items-end py-2">
+              <div class="col-md-2">
+                <label class="field-label">Serial</label>
+                <input type="text" name="serial_number" class="form-control form-control-sm"
+                       value="{{ u.serial_number or '' }}">
+              </div>
+              <div class="col-md-2">
+                <label class="field-label">Colour</label>
+                <input type="text" name="color" class="form-control form-control-sm"
+                       value="{{ u.color or '' }}">
+              </div>
+              <div class="col-md-1">
+                <label class="field-label">Storage</label>
+                <input type="text" name="storage" class="form-control form-control-sm"
+                       value="{{ u.storage or '' }}">
+              </div>
+              <div class="col-md-2">
+                <label class="field-label">Condition</label>
+                <select name="condition" class="form-select form-select-sm">
+                  {% for c in ['new', 'open_box', 'refurbished', 'used'] %}
+                  <option value="{{ c }}" {% if u.condition == c %}selected{% endif %}>
+                    {{ c|replace('_', ' ')|title }}
+                  </option>
+                  {% endfor %}
+                </select>
+              </div>
+              {% if current_user.can('view_cost_price') %}
+              <div class="col-md-2">
+                <label class="field-label">Cost (TZS)</label>
+                <input type="number" name="cost_price" class="form-control form-control-sm"
+                       value="{{ u.cost_price or 0 }}" min="0" step="1000">
+              </div>
+              {% endif %}
+              <div class="col-md-2">
+                <label class="field-label">Notes</label>
+                <input type="text" name="notes" class="form-control form-control-sm"
+                       value="{{ u.notes or '' }}">
+              </div>
+              <div class="col-md-1">
+                <button type="submit" class="btn btn-primary btn-sm w-100">Save</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-phone fs-1 d-block mb-2"></i>
+    <p class="mb-1">No tracked units yet.</p>
+    <p class="small">
+      Tick <strong>“Track each unit individually”</strong> on a product, then add its IMEIs
+      from <a href="{{ url_for('stock.adjust') }}">Add / Adjust Stock</a>.
+    </p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
