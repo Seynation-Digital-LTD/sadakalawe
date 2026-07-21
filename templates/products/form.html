@@ -113,6 +113,22 @@
       </div>
     </div>
 
+    <!-- Per-unit tracking -->
+    <div class="mb-4">
+      <div class="form-check">
+        <input type="checkbox" name="track_units" id="track_units" class="form-check-input"
+               value="1" {% if product and product.track_units %}checked{% endif %}>
+        <label for="track_units" class="form-check-label fw-semibold">
+          Track each unit individually (IMEI / serial number)
+        </label>
+      </div>
+      <div class="form-text">
+        Turn this on for phones, laptops and tablets. Every unit is then recorded separately with its
+        own IMEI, colour, storage and condition — so 5 Google Pixels show as 5 distinct devices, not
+        just "stock: 5". Leave off for cables, cases and other bulk accessories.
+      </div>
+    </div>
+
     <!-- Product Image -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Product Image</label>

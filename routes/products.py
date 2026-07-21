@@ -129,8 +129,8 @@ def new():
         pid = execute_db("""
             INSERT INTO products
               (brand_category, category_id, subcategory_id, model, description,
-               price, cost_price, stock_count, sku, barcode)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+               price, cost_price, stock_count, sku, barcode, track_units)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
         """, (
             brand_category,
             int(cat_id),
@@ -142,6 +142,7 @@ def new():
             int(request.form.get('stock_count', 0) or 0),
             request.form.get('sku', '').strip() or None,
             request.form.get('barcode', '').strip() or None,
+            1 if request.form.get('track_units') else 0,
         ))
 
         # Handle image upload
@@ -214,7 +215,8 @@ def edit(product_id):
             UPDATE products SET
               brand_category=?, category_id=?, subcategory_id=?,
               model=?, description=?, price=?, cost_price=?, stock_count=?, sku=?,
-              barcode=?, is_active=?, image_path=?, updated_at=datetime('now','localtime')
+              barcode=?, is_active=?, image_path=?, track_units=?,
+              updated_at=datetime('now','localtime')
             WHERE id=?
         """, (
             brand_category,
@@ -229,6 +231,7 @@ def edit(product_id):
             request.form.get('barcode', '').strip() or None,
             is_active,
             new_image_path,
+            1 if request.form.get('track_units') else 0,
             product_id,
         ))
         flash('Product updated.', 'success')
@@ -279,7 +282,7 @@ def search():
     if not q:
         return jsonify([])
     rows = query_db("""
-        SELECT p.id, p.model, p.description, p.price, p.stock_count,
+        SELECT p.id, p.model, p.description, p.price, p.stock_count, p.track_units,
                pc.name AS category_name,
                ps.name AS subcategory_name
         FROM products p

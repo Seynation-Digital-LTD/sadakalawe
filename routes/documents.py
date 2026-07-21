@@ -82,6 +82,7 @@ def _parse_items(form):
     unit_prices  = form.getlist('item_price[]')
     product_ids  = form.getlist('item_product_id[]')
     discounts    = form.getlist('item_discount[]')
+    units_list   = form.getlist('item_units[]')   # comma-separated IMEIs per row
     items = []
     for i, desc in enumerate(descriptions):
         desc = desc.strip()
@@ -103,12 +104,86 @@ def _parse_items(form):
             'discount_pct': disc_pct,
             'line_total':   round(qty * discounted_price, 2),
             'product_id':   (product_ids[i] if i < len(product_ids) else None) or None,
+            'units':        [x.strip() for x in (units_list[i] if i < len(units_list) else '').split(',') if x.strip()],
         })
     return items
 
 
+def _validate_units(items, branch_id):
+    """For products tracked per unit, every sold unit needs an IMEI picked from stock.
+
+    Returns a list of error messages — empty means the sale is good to record.
+    """
+    errors = []
+    seen = set()
+    for item in items:
+        if not item['product_id']:
+            continue
+        p = query_db("SELECT model, track_units FROM products WHERE id=?",
+                     (item['product_id'],), one=True)
+        if not p or not p['track_units']:
+            continue
+
+        qty   = int(abs(item['quantity']))
+        units = item['units']
+        if len(units) != qty:
+            errors.append(
+                f'{p["model"]}: select {qty} IMEI{"s" if qty != 1 else ""} '
+                f'(you selected {len(units)}).')
+            continue
+
+        for imei in units:
+            if imei in seen:
+                errors.append(f'IMEI {imei} is on this sale twice.')
+                continue
+            seen.add(imei)
+            row = query_db(
+                "SELECT status, branch_id FROM device_imeis WHERE imei=? AND product_id=?",
+                (imei, item['product_id']), one=True)
+            if not row:
+                errors.append(f'IMEI {imei} is not in stock for {p["model"]}.')
+            elif row['status'] != 'in_stock':
+                errors.append(f'IMEI {imei} is already marked {row["status"]}.')
+            elif row['branch_id'] != branch_id:
+                errors.append(f'IMEI {imei} belongs to another branch.')
+    return errors
+
+
+def _register_units(items, doc_id, customer_id):
+    """Record the picked units against the document and mark them sold."""
+    for item in items:
+        for imei in item['units']:
+            unit = query_db("SELECT * FROM device_imeis WHERE imei=?", (imei,), one=True)
+            if not unit:
+                continue
+            execute_db("""
+                INSERT INTO device_sales
+                  (document_id, customer_id, product_id, imei, serial_number,
+                   color, storage, created_by)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (doc_id, customer_id, item['product_id'], imei,
+                  unit['serial_number'], unit['color'], unit['storage'],
+                  current_user.id))
+            execute_db("""
+                UPDATE device_imeis
+                   SET status='sold', sold_document_id=?, sold_at=datetime('now','localtime')
+                 WHERE imei=?
+            """, (doc_id, imei))
+
+
 def _deduct_stock(items, branch_id, invoice_id):
-    """Deduct sold quantities from per-branch stock and record movements."""
+    """Deduct sold quantities from per-branch stock and record movements.
+
+    Lines typed by hand (no product_id) have nothing to deduct from, and products
+    flagged track_units still need their IMEIs registered on the document — both
+    are flagged to the user rather than failing silently.
+    """
+    untracked = [i['description'] for i in items if not i['product_id']]
+    if untracked:
+        flash('Stock was not adjusted for hand-typed lines: '
+              + ', '.join(untracked)
+              + '. Pick items from the catalogue so stock stays accurate.', 'warning')
+
     for item in items:
         if not item['product_id']:
             continue
@@ -162,6 +237,15 @@ def _restore_invoice_stock(invoice_id):
               updated_at  = datetime('now','localtime')
             WHERE id=?
         """, (pid, pid))
+    # Release any individually tracked units back into stock. device_sales rows are
+    # cascade-deleted with the document, so this has to run before that happens.
+    execute_db("""
+        UPDATE device_imeis
+           SET status='in_stock', sold_document_id=NULL, sold_at=NULL
+         WHERE sold_document_id=?
+            OR imei IN (SELECT imei FROM device_sales WHERE document_id=? AND imei IS NOT NULL)
+    """, (invoice_id, invoice_id))
+
     # Remove the sale stock movements for this invoice
     execute_db("DELETE FROM stock_movements WHERE reference_doc_id=? AND movement_type='sale'",
                (invoice_id,))
@@ -301,6 +385,17 @@ def new():
             return render_template('documents/new.html', branches=branches,
                                    vat_rate=VAT_RATE, default_branch_id=default_branch_id)
 
+        # Unit-tracked products must have their IMEIs picked before the sale is recorded
+        unit_errors = _validate_units(items, branch_id)
+        if unit_errors:
+            for msg in unit_errors:
+                flash(msg, 'danger')
+            session['doc_form_nonce'] = submitted_nonce  # let them resubmit
+            return render_template('documents/new.html', branches=branches,
+                                   vat_rate=VAT_RATE, default_branch_id=default_branch_id,
+                                   today=date.today().isoformat(),
+                                   form_nonce=submitted_nonce)
+
         subtotal   = sum(i['line_total'] for i in items)
         vat_amount = round(subtotal * vat_rate / 100, 2) if is_vat else 0
         total      = subtotal + vat_amount
@@ -340,6 +435,7 @@ def new():
 
         created_ids = []
         invoice_id  = None
+        delivery_note_id = None
         batch_id    = None   # set from invoice number on first iteration
 
         for doc_type in DOC_TYPES_ORDER:
@@ -370,10 +466,16 @@ def new():
             created_ids.append(doc_id)
             if doc_type == 'invoice':
                 invoice_id = doc_id
+            elif doc_type == 'delivery_note':
+                delivery_note_id = doc_id
 
-        # Deduct stock once, against the invoice
-        if invoice_id:
-            _deduct_stock(items, branch_id, invoice_id)
+        # Deduct stock ONCE per sale. Goods leave on either the invoice or the
+        # delivery note — when both exist they're the same sale, so the invoice
+        # carries the movement and the DN must not deduct a second time.
+        stock_doc_id = invoice_id or delivery_note_id
+        if stock_doc_id:
+            _deduct_stock(items, branch_id, stock_doc_id)
+            _register_units(items, stock_doc_id, customer_id)
 
         ids_str = ','.join(str(i) for i in created_ids)
         return redirect(url_for('documents.result', ids=ids_str))

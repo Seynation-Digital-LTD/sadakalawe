@@ -94,6 +94,8 @@ document.addEventListener('DOMContentLoaded', () => {
         <input type="text" name="item_specs[]" class="specs-inp"
                value="${esc(specs)}" placeholder="Specs / details (optional)…" style="margin-top:3px;font-size:12px;color:#6b7280">
         <input type="hidden" name="item_product_id[]" class="pid-inp" value="">
+        <input type="hidden" name="item_units[]" class="units-inp" value="">
+        <div class="units-box" style="display:none;margin-top:6px;padding:6px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#fafafa"></div>
       </td>
       <td>
         <input type="number" name="item_qty[]" class="qty-inp"
@@ -130,6 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
     descInp.addEventListener('input', () => {
       clearTimeout(prodTimer);
       pidInp.value = '';
+      clearUnits(tr);   // typing a new description drops the old product's units
       const q = descInp.value.trim();
       if (!q) { hideProd(); return; }
       prodTimer = setTimeout(() => searchProducts(q, descInp, tr), 240);
@@ -138,6 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     [qtyInp, priceInp, discInp].forEach(el =>
       el.addEventListener('input', () => { updateRow(tr); recalc(); }));
+    qtyInp.addEventListener('input', () => syncUnits(tr));
 
     tr.querySelector('.btn-row-del').addEventListener('click', () => {
       tr.remove(); renumber(); recalc();
@@ -211,6 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tr.querySelector('.pid-inp').value   = p.id;
             tr.querySelector('.price-inp').value = p.price;
             updateRow(tr); recalc(); hideProd();
+            loadUnits(tr, p);
           });
           prodPopup.appendChild(div);
         });
@@ -220,6 +225,72 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function hideProd() { prodPopup.style.display = 'none'; }
 
+  // ── Per-unit (IMEI) picker ─────────────────────────────────
+  // Products flagged track_units are sold one physical device at a time, so the
+  // staff member picks exactly which units leave the shelf.
+  function clearUnits(tr) {
+    const box = tr.querySelector('.units-box');
+    const inp = tr.querySelector('.units-inp');
+    if (inp) inp.value = '';
+    if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+  }
+
+  function loadUnits(tr, product) {
+    clearUnits(tr);
+    if (!product.track_units) return;
+
+    const box      = tr.querySelector('.units-box');
+    const branchEl = document.getElementById('branch_id');
+    const branchId = branchEl ? branchEl.value : '';
+
+    fetch(`${UNITS_API_URL}?product_id=${product.id}&branch_id=${encodeURIComponent(branchId)}`)
+      .then(r => r.json())
+      .then(units => {
+        box.style.display = '';
+        if (!units.length) {
+          box.innerHTML =
+            '<div style="font-size:12px;color:#b91c1c">' +
+            'No units with IMEI in stock at this branch. Add them under Stock → Add / Adjust Stock.' +
+            '</div>';
+          return;
+        }
+        box.innerHTML =
+          '<div style="font-size:11px;color:#6b7280;margin-bottom:4px">' +
+          'Select the device(s) being sold — must match the quantity:</div>';
+        units.forEach(u => {
+          const bits = [u.color, u.storage, u.condition].filter(Boolean).join(' · ');
+          const lbl = document.createElement('label');
+          lbl.style.cssText = 'display:block;font-size:12px;cursor:pointer;padding:1px 0';
+          lbl.innerHTML =
+            `<input type="checkbox" class="unit-cb" value="${esc(u.imei)}" style="margin-right:6px">` +
+            `<span style="font-family:monospace">${esc(u.imei)}</span>` +
+            (bits ? ` <span style="color:#6b7280">— ${esc(bits)}</span>` : '');
+          lbl.querySelector('.unit-cb').addEventListener('change', () => syncUnits(tr));
+          box.appendChild(lbl);
+        });
+        box.appendChild(document.createElement('div')).className = 'units-msg';
+        syncUnits(tr);
+      })
+      .catch(() => clearUnits(tr));
+  }
+
+  function syncUnits(tr) {
+    const box = tr.querySelector('.units-box');
+    if (!box || box.style.display === 'none') return;
+    const picked = [...box.querySelectorAll('.unit-cb:checked')].map(cb => cb.value);
+    tr.querySelector('.units-inp').value = picked.join(',');
+
+    const qty = parseFloat(tr.querySelector('.qty-inp').value) || 0;
+    const msg = box.querySelector('.units-msg');
+    if (msg) {
+      const ok = picked.length === qty;
+      msg.style.cssText = 'font-size:11px;margin-top:3px;color:' + (ok ? '#15803d' : '#b91c1c');
+      msg.textContent = ok
+        ? `${picked.length} of ${qty} selected ✓`
+        : `${picked.length} of ${qty} selected`;
+    }
+  }
+
   // ── Form validation ────────────────────────────────────────
   document.getElementById('doc-form').addEventListener('submit', e => {
     const hasItem = [...itemsBody.querySelectorAll('.desc-inp')]
@@ -227,6 +298,24 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!hasItem) {
       e.preventDefault();
       alert('Please add at least one item before proceeding.');
+      return;
+    }
+
+    // Unit-tracked lines must have exactly `qty` IMEIs picked
+    const bad = [];
+    itemsBody.querySelectorAll('tr').forEach(tr => {
+      const box = tr.querySelector('.units-box');
+      if (!box || box.style.display === 'none') return;
+      const qty    = parseFloat(tr.querySelector('.qty-inp').value) || 0;
+      const picked = (tr.querySelector('.units-inp').value || '')
+                       .split(',').filter(Boolean).length;
+      if (picked !== qty) {
+        bad.push(`${tr.querySelector('.desc-inp').value || 'Item'}: ${picked} of ${qty} IMEIs selected`);
+      }
+    });
+    if (bad.length) {
+      e.preventDefault();
+      alert('Select the IMEI for every unit being sold:\n\n' + bad.join('\n'));
     }
   });
 
