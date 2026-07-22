@@ -64,6 +64,11 @@ VIP_TIERS = [
     {'name': 'Bronze', 'min_spend':          0, 'color': '#92400e', 'bg': '#fdf4dc', 'icon': '🥉'},
 ]
 
+# Port the local web app listens on. 8090 rather than the common 8080 so
+# Sadakalawe never collides with another app running on the same Mac.
+# Override with:  PORT=9000 venv/bin/python launcher.py
+PORT = int(os.environ.get('PORT', '8090'))
+
 SECRET_KEY = os.environ.get('SECRET_KEY', 'sadakalawe-2026-change-in-production-xK9mP2qR')
 DATABASE = os.path.join(BASE_DIR, 'data', 'sadakalawe.db')
 BACKUP_DIR = os.path.join(BASE_DIR, 'backups')

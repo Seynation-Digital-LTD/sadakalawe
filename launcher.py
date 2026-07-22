@@ -24,7 +24,7 @@ else:
 sys.path.insert(0, PROJECT_DIR)
 os.chdir(PROJECT_DIR)
 
-PORT     = 8080
+from config import PORT          # single source of truth — see config.py
 LOG_FILE = os.path.join(PROJECT_DIR, 'sadakalawe.log')
 
 logging.basicConfig(
@@ -44,6 +44,16 @@ def port_in_use(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.5)
         return s.connect_ex(('127.0.0.1', port)) == 0
+
+
+def is_sadakalawe(port: int) -> bool:
+    """Confirm the app answering on `port` is ours and not some other project."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f'http://127.0.0.1:{port}/login', timeout=2) as r:
+            return b'Sadakalawe' in r.read(20000)
+    except Exception:
+        return False
 
 
 def wait_for_server(port: int, timeout: float = 20.0) -> bool:
@@ -83,10 +93,18 @@ def main() -> None:
     log.info('Sadakalawe Sales System starting …')
     log.info('Project directory: %s', PROJECT_DIR)
 
-    # If the server is already running just open a new browser tab
+    # If the port is busy, make sure it is actually Sadakalawe before opening a
+    # tab — otherwise we'd hand the user someone else's app and call it ours.
     if port_in_use(PORT):
-        log.info('Server already running on :%d — opening browser tab', PORT)
-        webbrowser.open(f'http://127.0.0.1:{PORT}/')
+        if is_sadakalawe(PORT):
+            log.info('Server already running on :%d — opening browser tab', PORT)
+            webbrowser.open(f'http://127.0.0.1:{PORT}/')
+        else:
+            msg = (f'Port {PORT} is being used by another program, so Sadakalawe '
+                   f'cannot start.\n\nClose whatever is using port {PORT} and try '
+                   f'again, or set a different port with PORT=… in the environment.')
+            log.error(msg)
+            alert(msg)
         return
 
     # Build and start Flask

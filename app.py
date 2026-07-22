@@ -213,4 +213,5 @@ def create_app():
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True, host='127.0.0.1', port=8080)
+    from config import PORT
+    app.run(debug=True, host='127.0.0.1', port=PORT)

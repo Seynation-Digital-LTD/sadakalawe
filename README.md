@@ -15,7 +15,11 @@ venv/bin/pip install -r requirements.txt
 venv/bin/python3 app.py
 ```
 
-Then open **http://localhost:5000** in the browser.
+Then open **http://localhost:8090** in the browser.
+
+The port is set in `config.py` (`PORT`). It is 8090 rather than the
+common 8080 so Sadakalawe never clashes with another app on the same Mac.
+Override for one run with `PORT=9000 venv/bin/python3 launcher.py`.
 
 ## Default login
 
