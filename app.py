@@ -12,8 +12,8 @@ login_manager = LoginManager()
 
 def create_app():
     app = Flask(__name__)
-    app.config['SECRET_KEY'] = os.environ.get(
-        'SECRET_KEY', 'sadakalawe-2026-change-in-production-xK9mP2qR')
+    from config import SECRET_KEY
+    app.config['SECRET_KEY'] = SECRET_KEY
     app.config['DATABASE'] = os.path.join(os.path.dirname(__file__), 'data', 'sadakalawe.db')
     app.config['BACKUP_DIR'] = os.path.join(os.path.dirname(__file__), 'backups')
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)

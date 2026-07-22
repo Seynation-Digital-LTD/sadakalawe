@@ -1,4 +1,5 @@
 import os
+import secrets
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -69,7 +70,34 @@ VIP_TIERS = [
 # Override with:  PORT=9000 venv/bin/python launcher.py
 PORT = int(os.environ.get('PORT', '8090'))
 
-SECRET_KEY = os.environ.get('SECRET_KEY', 'sadakalawe-2026-change-in-production-xK9mP2qR')
+def _load_secret_key():
+    """The key that signs login cookies. Never hardcode it.
+
+    A hardcoded key in a public repo lets anyone forge an admin session, so:
+      1. use $SECRET_KEY (set from .env by systemd on the server), else
+      2. fall back to a random key persisted in data/secret_key, which is
+         gitignored and generated on first run for local development.
+    """
+    key = os.environ.get('SECRET_KEY')
+    if key:
+        return key
+
+    key_file = os.path.join(BASE_DIR, 'data', 'secret_key')
+    if os.path.exists(key_file):
+        with open(key_file) as fh:
+            saved = fh.read().strip()
+        if saved:
+            return saved
+
+    generated = secrets.token_hex(32)
+    os.makedirs(os.path.dirname(key_file), exist_ok=True)
+    with open(key_file, 'w') as fh:
+        fh.write(generated)
+    os.chmod(key_file, 0o600)
+    return generated
+
+
+SECRET_KEY = _load_secret_key()
 DATABASE = os.path.join(BASE_DIR, 'data', 'sadakalawe.db')
 BACKUP_DIR = os.path.join(BASE_DIR, 'backups')
 
