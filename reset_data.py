@@ -39,7 +39,7 @@ db.execute("UPDATE products SET stock_count = 0")
 print("Reset stock to 0")
 
 # Force admin password change on next login
-db.execute("UPDATE users SET must_change_password = 1 WHERE role != admin")
+db.execute("UPDATE users SET must_change_password = 1 WHERE role != 'admin'")
 print("Set must_change_password for all staff")
 
 db.commit()
