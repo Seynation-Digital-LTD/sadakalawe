@@ -15,7 +15,6 @@ BLACK  = 'FF000000'
 WHITE  = 'FFFFFFFF'
 LIGHT  = 'FFFFF3EC'
 
-
 def _branch_filter(branch_id):
     if branch_id:
         return " AND branch_id=?", [branch_id]

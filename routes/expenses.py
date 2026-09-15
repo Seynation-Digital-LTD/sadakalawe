@@ -18,6 +18,7 @@ CATEGORIES = [
     'Marketing & Advertising',
     'Repairs & Maintenance',
     'Purchases / Supplies',
+    'Tips',
     'Other',
 ]
 
