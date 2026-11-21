@@ -198,6 +198,11 @@ def create_app():
 
     @app.errorhandler(Exception)
     def unhandled_exception(e):
+        # Normal HTTP errors (404, 405, ...) are not crashes — return them as-is
+        # instead of logging a traceback and turning them into a 500.
+        from werkzeug.exceptions import HTTPException
+        if isinstance(e, HTTPException):
+            return e
         # Log the full traceback to the console for debugging
         logging.exception('Unhandled exception: %s', e)
         # In debug mode, let Flask show its interactive debugger

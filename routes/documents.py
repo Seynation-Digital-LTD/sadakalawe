@@ -1,3 +1,4 @@
+import html
 import re
 import secrets
 import zipfile
@@ -743,9 +744,18 @@ def edit(doc_id):
         subtotal    = round(sum(i['line_total'] for i in parsed_items), 2)
         vat_amount  = round(subtotal * vat_rate_val / 100, 2) if is_vat else 0.0
         total       = round(subtotal + vat_amount, 2)
-        pay_status  = 'credit' if payment_type == 'credit' else (
-            'paid' if total <= (doc['amount_paid'] or 0) + 0.01 else doc['payment_status']
-        )
+        # Status always follows the money actually received. Editing never changes
+        # amount_paid — if the new total is higher than what was paid, the invoice
+        # becomes 'partial' and shows up in Credits so the balance gets collected.
+        paid_so_far = float(doc['amount_paid'] or 0)
+        if doc['doc_type'] != 'invoice':
+            pay_status = doc['payment_status']
+        elif paid_so_far >= total - 0.01:
+            pay_status = 'paid'
+        elif paid_so_far > 0:
+            pay_status = 'partial'
+        else:
+            pay_status = 'credit'
 
         # Restore old stock for invoices before rewriting items
         if doc['doc_type'] == 'invoice':
@@ -852,7 +862,7 @@ def whatsapp_share(doc_id):
         '+255 768 596 006  |  sadakalawe.com',
     ]
     msg   = '\n'.join(lines)
-    phone = _wa_phone(doc.get('customer_phone', '') or '')
+    phone = _wa_phone(doc['customer_phone'] or '')
     wa    = (f'https://wa.me/{phone}?text={urlquote(msg)}'
              if phone else f'https://wa.me/?text={urlquote(msg)}')
     return redirect(wa)
@@ -868,6 +878,7 @@ def email_document(doc_id):
         doc = _fetch_doc_full(doc_id)
         if not doc:
             abort(404)
+        doc = dict(doc)
 
         mail_config = get_mail_config()
         if not mail_config.get('MAIL_USERNAME') or not mail_config.get('MAIL_PASSWORD'):
@@ -897,12 +908,13 @@ def email_document(doc_id):
         pdf_bytes = pdf_buf.read()
 
         label         = DOC_TYPE_LABELS.get(doc['doc_type'], doc['doc_type'])
-        customer_name = doc['customer_name'] or 'Valued Customer'
+        customer_name = html.escape(doc['customer_name'] or 'Valued Customer')
         subject       = f"Sadakalawe Enterprises — {label} {doc['doc_number']}"
 
         personal_block = ''
         if message:
-            personal_block = f'<p style="margin:16px 0;color:#594138">{message}</p>'
+            personal_block = ('<p style="margin:16px 0;color:#594138">'
+                              + html.escape(message).replace('\n', '<br>') + '</p>')
 
         body_html = f"""
         <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
@@ -916,7 +928,7 @@ def email_document(doc_id):
             <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:14px 18px;margin:18px 0">
               <p style="margin:0 0 6px 0;color:#594138;font-size:13px">Document Summary</p>
               <p style="margin:0;color:#1b1c1c;font-size:20px;font-weight:bold">
-                TZS {float(doc.get('total', 0)):,.0f}
+                TZS {float(doc.get('total') or 0):,.0f}
               </p>
               <p style="margin:4px 0 0 0;color:#5f5e5e;font-size:12px">
                 {label} &middot; {str(doc.get('created_at', ''))[:10]}
