@@ -8,7 +8,7 @@ from flask_login import login_required, current_user
 from database import get_db, execute_db, query_db, transaction, audit
 from routes.auth import perm_required
 from services import stock as stock_svc
-from services.access import own_branch
+from services.access import own_branch, sees_all_branches
 from datetime import datetime
 
 bp = Blueprint('stock', __name__, url_prefix='/stock')
@@ -78,7 +78,7 @@ def index():
     low_count = len(low_stock_count)
 
     branches = query_db("SELECT * FROM branches ORDER BY name")
-    return render_template('stock/index.html',
+    return render_template('stock/index.html', unplaced_count=len(unplaced_products()),
                            products=products, branches=branches,
                            branch_filter=branch_id, q=q,
                            show_low=show_low, low_count=low_count)
@@ -91,20 +91,41 @@ ADJUST_TYPES = {
 }
 
 
+def _my_branches(branches):
+    """Staff can only act for their own branch, so only show them that one."""
+    if current_user.is_admin or not current_user.branch_id:
+        return branches
+    return [b for b in branches if b['id'] == current_user.branch_id]
+
+
+def unplaced_products():
+    """Products whose total count is higher than what the branches hold —
+    stock typed on the old product form / import that never reached a branch."""
+    return query_db("""
+        SELECT p.id, p.brand_category, p.model, p.track_units, p.stock_count,
+               COALESCE((SELECT SUM(quantity) FROM product_stock WHERE product_id=p.id),0) AS in_branches
+          FROM products p
+         WHERE p.is_active=1
+           AND p.stock_count > COALESCE((SELECT SUM(quantity) FROM product_stock WHERE product_id=p.id),0)
+         ORDER BY p.brand_category, p.model
+    """)
+
+
 @bp.route('/adjust', methods=['GET', 'POST'])
 @login_required
-@perm_required('manage_stock')
 def adjust():
     """Receive stock or correct a count. Customer returns go through Returns."""
-    branches = query_db("SELECT * FROM branches ORDER BY name")
+    branches = _my_branches(query_db("SELECT * FROM branches ORDER BY name"))
     products = query_db(
         "SELECT id, brand_category, model, sku, track_units FROM products "
         "WHERE is_active=1 ORDER BY brand_category, model")
     default_branch_id = current_user.branch_id or (branches[0]['id'] if branches else None)
+    can_correct = current_user.can('manage_stock')
 
     def _again():
         return render_template('stock/adjust.html', branches=branches,
-                               products=products, default_branch_id=default_branch_id)
+                               products=products, default_branch_id=default_branch_id,
+                               can_correct=can_correct)
 
     if request.method == 'POST':
         try:
@@ -118,6 +139,10 @@ def adjust():
                 raise ValueError('quantity must be a whole number above 0')
         except (ValueError, KeyError) as e:
             flash(f'Please fill in all fields correctly. ({e})', 'danger')
+            return _again()
+        if movement_type != 'stock_in' and not can_correct:
+            flash('Only staff with the "Receive stock and adjust quantities" permission can correct '
+                  'counts. Use Stock In for goods you received.', 'danger')
             return _again()
 
         product = query_db("SELECT * FROM products WHERE id=?", (product_id,), one=True)
@@ -192,7 +217,6 @@ def adjust():
 
 @bp.route('/transfer', methods=['GET', 'POST'])
 @login_required
-@perm_required('manage_stock')
 def transfer():
     """Transfer stock (and the IMEI units) from one branch to another."""
     branches = query_db("SELECT * FROM branches ORDER BY name")
@@ -201,7 +225,8 @@ def transfer():
         "WHERE is_active=1 ORDER BY brand_category, model")
 
     def _again():
-        return render_template('stock/transfer.html', branches=branches, products=products)
+        return render_template('stock/transfer.html', branches=branches, products=products,
+                               from_branches=_my_branches(branches))
 
     if request.method == 'POST':
         try:
@@ -432,3 +457,49 @@ def api_product_stock():
         "SELECT quantity FROM product_stock WHERE product_id=? AND branch_id=?",
         (product_id, branch_id), one=True)
     return jsonify({'quantity': float(row['quantity']) if row else 0})
+
+
+@bp.route('/unplaced', methods=['GET', 'POST'])
+@login_required
+def unplaced():
+    """Put stock that was typed on the product form (and so is in no branch)
+    into the branch where it physically is — or clear it if it's not real."""
+    branches = _my_branches(query_db("SELECT * FROM branches ORDER BY name"))
+    if request.method == 'POST':
+        pid = request.form.get('product_id', type=int)
+        row = next((r for r in unplaced_products() if r['id'] == pid), None)
+        if not row:
+            flash('Nothing left to place for that product.', 'info')
+            return redirect(url_for('stock.unplaced'))
+        missing = int(row['stock_count'] - row['in_branches'])
+        label = f'{row["brand_category"]} {row["model"]}'
+        if request.form.get('action') == 'clear':
+            if not current_user.can('manage_stock'):
+                flash("You don't have permission to clear stock.", 'danger')
+                return redirect(url_for('stock.unplaced'))
+            with transaction():
+                stock_svc._sync_total(pid)
+                audit('stock_unplaced_cleared', 'product', pid, label, f'cleared {missing}')
+            flash(f'{label}: cleared {missing} that were not in any branch.', 'success')
+            return redirect(url_for('stock.unplaced'))
+        if row['track_units']:
+            flash(f'{label} is tracked by IMEI — receive it with Stock In and type each IMEI.', 'warning')
+            return redirect(url_for('stock.adjust', product_id=pid))
+        branch_id = own_branch(request.form.get('branch_id'))
+        qty = request.form.get('quantity', type=int) or 0
+        if not branch_id or qty <= 0 or qty > missing:
+            flash(f'Enter a quantity between 1 and {missing} and pick the branch.', 'danger')
+            return redirect(url_for('stock.unplaced'))
+        with transaction():
+            # stock_count already counts these units, so record the branch stock
+            # and log it; the total stays the same.
+            stock_svc.move(pid, branch_id, qty, 'stock_in',
+                           notes='Placed in branch (was typed on the product form)')
+            # move() re-totals from the branches; keep the rest still waiting to be placed.
+            execute_db("UPDATE products SET stock_count=? WHERE id=?", (row['stock_count'], pid))
+            audit('stock_placed', 'product', pid, label, f'+{qty}', branch_id)
+        b = query_db("SELECT name FROM branches WHERE id=?", (branch_id,), one=True)
+        flash(f'{label}: {qty} now in stock at {b["name"]}.', 'success')
+        return redirect(url_for('stock.unplaced'))
+    return render_template('stock/unplaced.html', rows=unplaced_products(), branches=branches,
+                           default_branch_id=current_user.branch_id)

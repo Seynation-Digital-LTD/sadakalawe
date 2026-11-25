@@ -123,9 +123,15 @@ MAIL_FROM     = os.environ.get('MAIL_FROM',      '')
 # "What's new" popup — shown once to every user after an update.
 # To announce the next update: change 'version' and the items. Everyone sees it once.
 WHATS_NEW = {
-    'version': '2026-11-25',
+    'version': '2026-11-25b',
     'title': "What's new in Sadakalawe",
     'items': [
+        ('bi-box-arrow-in-down', 'Adding stock — fixed',
+         'Everyone can receive stock again: Stock Levels → Add / Adjust Stock → Stock In. It goes into '
+         'your branch, and you can sell it straight away. The "Stock Count" box on the product form is '
+         'gone — a new product asks for its opening stock and branch instead. Stock typed there before '
+         'shows on Stock Levels as "not in any branch": press "Put it in a branch". If a sale says '
+         '"Not enough stock", it now tells you where the stock is.'),
         ('bi-box-seam', 'Sales now come out of stock',
          'Pick every item from the product list. You can only sell what your branch has in stock — '
          'the search shows "In stock here". Items typed by hand are no longer accepted.'),
@@ -141,9 +147,10 @@ WHATS_NEW = {
          'Phones need one IMEI per unit when receiving or transferring. Transferred phones can be sold at the new branch.'),
     ],
     'admin_items': [
-        ('bi-shield-check', 'Give stock permission',
-         'Staff who receive or transfer stock need the "Receive stock and adjust quantities" permission '
-         '(Users → Edit). Without it they will see "no permission".'),
+        ('bi-shield-check', 'Stock permission',
+         'Every staff member can receive stock and transfer out of their own branch. The '
+         '"Receive stock and adjust quantities" permission is only needed for count corrections '
+         '(Adjustment + / −) and for clearing stock that is not in a branch.'),
         ('bi-intersect', 'Duplicate Check',
          'New page in the Admin menu: sales entered twice, sales with two invoices, and duplicate '
          'products you can merge (stock and history move across). Duplicate customers are matched by phone in any format.'),

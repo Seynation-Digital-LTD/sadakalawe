@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% set active = 'stock' %}
+{% block title %}Stock Not in a Branch{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Stock not in a branch</h2>
+    <p class="page-sub">These numbers were typed on the product form or imported, so they are not
+      in any branch and cannot be sold. Put each one in the branch where the goods really are.</p>
+  </div>
+  <a href="{{ url_for('stock.index') }}" class="btn btn-ghost"><i class="bi bi-arrow-left"></i> Stock Levels</a>
+</div>
+
+{% if not rows %}
+<div class="alert alert-success"><i class="bi bi-check-circle"></i> All stock is in a branch. Nothing to do.</div>
+{% else %}
+<div class="table-card">
+  <table class="table align-middle mb-0">
+    <thead><tr>
+      <th>Product</th><th class="text-end">Not in a branch</th><th>Put it in</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for r in rows %}
+    {% set missing = (r.stock_count - r.in_branches)|int %}
+    <tr>
+      <td><div class="fw-semibold">{{ r.model }}</div><div class="small text-muted">{{ r.brand_category }}</div></td>
+      <td class="text-end fw-bold">{{ missing }}</td>
+      <td>
+        {% if r.track_units %}
+          <a class="btn btn-sm btn-primary" href="{{ url_for('stock.adjust', product_id=r.id) }}">
+            <i class="bi bi-upc-scan"></i> Stock In with IMEIs</a>
+        {% else %}
+        <form method="POST" class="d-flex gap-2 flex-wrap">
+          <input type="hidden" name="product_id" value="{{ r.id }}">
+          <select name="branch_id" class="form-select form-select-sm" style="width:auto" required>
+            {% for b in branches %}
+            <option value="{{ b.id }}" {% if b.id == default_branch_id %}selected{% endif %}>{{ b.name }}</option>
+            {% endfor %}
+          </select>
+          <input type="number" name="quantity" value="{{ missing }}" min="1" max="{{ missing }}"
+                 class="form-control form-control-sm" style="width:80px" required>
+          <button class="btn btn-sm btn-primary"><i class="bi bi-box-arrow-in-down"></i> Put in branch</button>
+        </form>
+        {% endif %}
+      </td>
+      <td class="text-end">
+        {% if current_user.can('manage_stock') %}
+        <form method="POST">
+          <input type="hidden" name="product_id" value="{{ r.id }}">
+          <input type="hidden" name="action" value="clear">
+          <button class="btn btn-sm btn-ghost text-danger" title="The goods are not really there">
+            <i class="bi bi-x-circle"></i> Not real — clear</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="small text-muted mt-2">Stock split over two branches? Put part of it in one branch, then the rest in the other.</p>
+{% endif %}
+{% endblock %}

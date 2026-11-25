@@ -38,6 +38,7 @@
 
         <div class="mb-3">
           <label class="field-label">Branch</label>
+          {% if branches|length == 1 %}<div class="field-hint mb-1">Stock is added to your branch.</div>{% endif %}
           <select name="branch_id" class="form-select" required>
             {% for b in branches %}
             <option value="{{ b.id }}"
@@ -51,11 +52,12 @@
         <div class="mb-3">
           <label class="field-label">Movement Type</label>
           <div class="row g-2">
-            {% for val, icon, label, desc in [
-              ('stock_in',      'bi-box-arrow-in-down', 'Stock In',          'New goods received from supplier'),
+            {% set types = [('stock_in', 'bi-box-arrow-in-down', 'Stock In', 'New goods received from supplier')] %}
+            {% if can_correct %}{% set types = types + [
               ('adjustment_in', 'bi-plus-circle',       'Adjustment (+)',     'Add units (counting correction)'),
               ('adjustment_out','bi-dash-circle',        'Adjustment (−)',    'Remove units (counting correction)'),
-            ] %}
+            ] %}{% endif %}
+            {% for val, icon, label, desc in types %}
             <div class="col-sm-6">
               <label class="movement-type-card">
                 <input type="radio" name="movement_type" value="{{ val }}"

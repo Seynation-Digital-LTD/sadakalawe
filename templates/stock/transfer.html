@@ -39,8 +39,8 @@
           <div class="col-6">
             <label class="field-label">From Branch</label>
             <select name="from_branch_id" id="from_branch" class="form-select" required>
-              <option value="">— Source —</option>
-              {% for b in branches %}
+              {% if from_branches|length > 1 %}<option value="">— Source —</option>{% endif %}
+              {% for b in from_branches %}
               <option value="{{ b.id }}">{{ b.name }}</option>
               {% endfor %}
             </select>

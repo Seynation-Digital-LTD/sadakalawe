@@ -1,10 +1,34 @@
 import os
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
 from flask_login import login_required, current_user
-from database import execute_db, query_db
+from database import execute_db, query_db, transaction
 from routes.auth import perm_required
+from services import stock as stock_svc
+from services.access import own_branch
 
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
+
+
+def _form_ctx(product=None):
+    """Branches for the opening-stock picker, and each branch's stock when editing."""
+    branches = query_db("SELECT * FROM branches ORDER BY name")
+    if not current_user.is_admin and current_user.branch_id:
+        branches = [b for b in branches if b['id'] == current_user.branch_id]
+    branch_stock = []
+    if product:
+        branch_stock = query_db("""
+            SELECT b.id, b.name, COALESCE(ps.quantity,0) AS quantity
+              FROM branches b LEFT JOIN product_stock ps ON ps.branch_id=b.id AND ps.product_id=?
+             ORDER BY b.name""", (product['id'],))
+    return dict(branches=branches, branch_stock=branch_stock,
+                default_branch_id=current_user.branch_id)
+
+
+def _int(name, default=0):
+    try:
+        return int(float(request.form.get(name, default) or default))
+    except ValueError:
+        return default
 
 
 def _save_product_image(product_id, file):
@@ -111,7 +135,7 @@ def new():
 
         if not model or not cat_id:
             flash('Model and category are required.', 'danger')
-            return render_template('products/form.html',
+            return render_template('products/form.html', **_form_ctx(),
                                    categories=categories, subcategories=subcategories, action='new')
 
         # Duplicate check
@@ -119,18 +143,26 @@ def new():
                        (model, cat_id), one=True)
         if dup:
             flash(f'A product "{model}" in this category already exists.', 'danger')
-            return render_template('products/form.html',
+            return render_template('products/form.html', **_form_ctx(),
                                    categories=categories, subcategories=subcategories, action='new')
 
         # Derive brand_category from selected category name (backward compat)
         cat = query_db("SELECT name FROM product_categories WHERE id=?", (cat_id,), one=True)
         brand_category = cat['name'] if cat else 'Other'
 
+        opening   = max(_int('opening_stock'), 0)
+        tracked   = bool(request.form.get('track_units'))
+        branch_id = own_branch(request.form.get('branch_id'))
+        if opening and not tracked and not branch_id:
+            flash('Pick the branch where the opening stock is.', 'danger')
+            return render_template('products/form.html', **_form_ctx(),
+                                   categories=categories, subcategories=subcategories, action='new')
+
         pid = execute_db("""
             INSERT INTO products
               (brand_category, category_id, subcategory_id, model, description,
-               price, cost_price, stock_count, sku, barcode, track_units)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+               price, cost_price, stock_count, sku, barcode, track_units, low_stock_alert)
+            VALUES (?,?,?,?,?,?,?,0,?,?,?,?)
         """, (
             brand_category,
             int(cat_id),
@@ -139,10 +171,10 @@ def new():
             request.form.get('description', '').strip(),
             float(request.form.get('price', 0) or 0),
             float(request.form.get('cost_price', 0) or 0),
-            int(request.form.get('stock_count', 0) or 0),
             request.form.get('sku', '').strip() or None,
             request.form.get('barcode', '').strip() or None,
-            1 if request.form.get('track_units') else 0,
+            1 if tracked else 0,
+            max(_int('low_stock_alert', 3), 0),
         ))
 
         # Handle image upload
@@ -160,10 +192,19 @@ def new():
                 (pid, b['id'])
             )
 
-        flash(f'Product "{model}" added.', 'success')
+        if tracked:
+            flash(f'Product "{model}" added. Now receive the units — one IMEI per phone.', 'success')
+            return redirect(url_for('stock.adjust', product_id=pid))
+        if opening:
+            with transaction():
+                stock_svc.move(pid, branch_id, opening, 'stock_in', notes='Opening stock')
+            b = query_db("SELECT name FROM branches WHERE id=?", (branch_id,), one=True)
+            flash(f'Product "{model}" added with {opening} in stock at {b["name"]}.', 'success')
+        else:
+            flash(f'Product "{model}" added (no stock yet — use Stock In when it arrives).', 'success')
         return redirect(url_for('products.list'))
 
-    return render_template('products/form.html',
+    return render_template('products/form.html', **_form_ctx(),
                            categories=categories, subcategories=subcategories, action='new')
 
 
@@ -196,7 +237,7 @@ def edit(product_id):
                        (model, cat_id, product_id), one=True)
         if dup:
             flash(f'Another product "{model}" in this category already exists.', 'danger')
-            return render_template('products/form.html', product=product,
+            return render_template('products/form.html', product=product, **_form_ctx(product),
                                    categories=categories, subcategories=subcategories, action='edit')
 
         cat = query_db("SELECT name FROM product_categories WHERE id=?", (cat_id,), one=True)
@@ -214,8 +255,8 @@ def edit(product_id):
         execute_db("""
             UPDATE products SET
               brand_category=?, category_id=?, subcategory_id=?,
-              model=?, description=?, price=?, cost_price=?, stock_count=?, sku=?,
-              barcode=?, is_active=?, image_path=?, track_units=?,
+              model=?, description=?, price=?, cost_price=?, sku=?,
+              barcode=?, is_active=?, image_path=?, track_units=?, low_stock_alert=?,
               updated_at=datetime('now','localtime')
             WHERE id=?
         """, (
@@ -225,20 +266,22 @@ def edit(product_id):
             model,
             request.form.get('description', '').strip(),
             float(request.form.get('price', 0) or 0),
-            float(request.form.get('cost_price', 0) or 0),
-            int(request.form.get('stock_count', 0) or 0),
+            # Staff who can't see the cost price don't get the field — keep what's saved.
+            (float(request.form.get('cost_price', 0) or 0)
+             if current_user.can('view_cost_price') else product['cost_price']),
             request.form.get('sku', '').strip() or None,
             request.form.get('barcode', '').strip() or None,
             is_active,
             new_image_path,
             1 if request.form.get('track_units') else 0,
+            max(_int('low_stock_alert', product['low_stock_alert'] or 3), 0),
             product_id,
         ))
         flash('Product updated.', 'success')
         return redirect(url_for('products.list'))
 
     return render_template('products/form.html',
-                           product=product,
+                           product=product, **_form_ctx(product),
                            categories=categories,
                            subcategories=subcategories,
                            action='edit')
