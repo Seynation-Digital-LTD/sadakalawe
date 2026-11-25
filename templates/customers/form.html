@@ -22,14 +22,16 @@
     <div class="mb-3">
       <label class="form-label fw-semibold">Full Name <span class="text-danger">*</span></label>
       <input type="text" name="name" class="form-control"
-             value="{{ customer.name if customer else '' }}" required autofocus>
+             value="{{ customer.name if customer else '' }}" required autofocus
+             placeholder="First and last name, e.g. Neema Mollel">
+      <div class="form-text">Real first and last name, not "mteja", "boss" or a nickname. Businesses: full company name.</div>
     </div>
 
     <div class="row g-3 mb-3">
       <div class="col-md-6">
-        <label class="form-label fw-semibold">Phone</label>
-        <input type="text" name="phone" class="form-control"
-               value="{{ customer.phone if customer else '' }}" placeholder="+255 ...">
+        <label class="form-label fw-semibold">Phone <span class="text-danger">*</span></label>
+        <input type="tel" name="phone" class="form-control" required
+               value="{{ customer.phone if customer else '' }}" placeholder="0768 596 006">
       </div>
       <div class="col-md-6">
         <label class="form-label fw-semibold">Email</label>

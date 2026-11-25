@@ -281,8 +281,13 @@ def search():
     q = request.args.get('q', '').strip()
     if not q:
         return jsonify([])
+    # Stock shown on the sale screen is what THIS branch has — that is what can be sold.
+    from services.access import own_branch
+    branch_id = own_branch(request.args.get('branch_id'))
     rows = query_db("""
         SELECT p.id, p.model, p.description, p.price, p.stock_count, p.track_units,
+               (SELECT COALESCE(quantity,0) FROM product_stock
+                 WHERE product_id=p.id AND branch_id=?) AS branch_stock,
                pc.name AS category_name,
                ps.name AS subcategory_name
         FROM products p
@@ -293,5 +298,53 @@ def search():
                OR pc.name LIKE ? OR ps.name LIKE ? OR p.barcode LIKE ?)
         ORDER BY pc.sort_order, ps.sort_order, p.model
         LIMIT 25
-    """, (f'%{q}%',) * 6)
+    """, (branch_id,) + (f'%{q}%',) * 6)
     return jsonify([dict(r) for r in rows])
+
+
+# Every table that points at a product — all of them move to the kept product on a merge.
+PRODUCT_LINK_TABLES = ('document_items', 'stock_movements', 'device_imeis',
+                       'device_sales', 'return_items')
+
+
+@bp.route('/merge', methods=['POST'])
+@login_required
+@perm_required('manage_products')
+def merge():
+    """Merge duplicate products into one: stock is added up, sales history and IMEIs
+    move across, and the duplicate is switched off (kept for the record)."""
+    from database import transaction, audit
+    from services import stock as stock_svc
+    keep_id = request.form.get('keep_id', type=int)
+    dup_ids = [d for d in request.form.getlist('dup_ids[]', type=int) if d != keep_id]
+    keep = query_db("SELECT * FROM products WHERE id=?", (keep_id,), one=True)
+    back = url_for('settings.duplicates') + '#products'
+    if not keep or not dup_ids:
+        flash('Choose the product to keep and at least one duplicate.', 'danger')
+        return redirect(back)
+
+    names = []
+    with transaction():
+        for dup_id in dup_ids:
+            dup = query_db("SELECT * FROM products WHERE id=?", (dup_id,), one=True)
+            if not dup:
+                continue
+            for row in query_db("SELECT branch_id, quantity FROM product_stock WHERE product_id=?", (dup_id,)):
+                if row['quantity']:
+                    stock_svc.put_back(keep_id, row['branch_id'], row['quantity'])
+            execute_db("DELETE FROM product_stock WHERE product_id=?", (dup_id,))
+            for table in PRODUCT_LINK_TABLES:
+                execute_db(f"UPDATE {table} SET product_id=? WHERE product_id=?", (keep_id, dup_id))
+            if not keep['cost_price'] and dup['cost_price']:
+                execute_db("UPDATE products SET cost_price=? WHERE id=?", (dup['cost_price'], keep_id))
+            if dup['track_units']:
+                execute_db("UPDATE products SET track_units=1 WHERE id=?", (keep_id,))
+            execute_db("UPDATE products SET is_active=0, stock_count=0, "
+                       "updated_at=datetime('now','localtime') WHERE id=?", (dup_id,))
+            names.append(dup['model'])
+        stock_svc._sync_total(keep_id)
+        audit('merge', 'product', keep_id, keep['model'], 'merged in: ' + ', '.join(names))
+
+    flash(f'Merged {len(names)} duplicate(s) into "{keep["model"]}". Stock and sales history moved across.',
+          'success')
+    return redirect(back)

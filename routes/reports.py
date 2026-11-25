@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, send_file
 from flask_login import login_required, current_user
-from database import query_db
+from database import query_db, ONE_PER_SALE
 from routes.auth import perm_required
 from datetime import date
 import csv
@@ -104,9 +104,11 @@ def dashboard():
     """)
 
     tp_sql = """
-        SELECT di.description, SUM(di.quantity) as qty, SUM(di.line_total) as revenue
+        SELECT COALESCE(p.model, di.description) AS description,
+               SUM(di.quantity) as qty, SUM(di.line_total) as revenue
         FROM document_items di
         JOIN documents d ON di.document_id=d.id
+        LEFT JOIN products p ON p.id = di.product_id
         WHERE d.doc_type='invoice'
           AND strftime('%Y-%m',d.created_at)=strftime('%Y-%m','now')
     """
@@ -114,7 +116,7 @@ def dashboard():
     if branch_id:
         tp_sql += " AND d.branch_id=?"
         tp_args.append(branch_id)
-    tp_sql += " GROUP BY di.description ORDER BY revenue DESC LIMIT 5"
+    tp_sql += " GROUP BY COALESCE(CAST(di.product_id AS TEXT), di.description) ORDER BY revenue DESC LIMIT 5"
     top_products = query_db(tp_sql, tp_args)
 
     tc_sql = """
@@ -132,13 +134,14 @@ def dashboard():
     tc_sql += " GROUP BY c.id ORDER BY revenue DESC LIMIT 5"
     top_customers = query_db(tc_sql, tc_args)
 
-    rec_sql = """
+    rec_sql = f"""
         SELECT d.id, d.doc_number, d.doc_type, d.total, d.payment_status,
-               d.created_at, b.name as branch_name, c.name as customer_name
+               d.created_at, b.name as branch_name,
+               COALESCE(c.name, d.walkin_name) as customer_name
         FROM documents d
         JOIN branches b ON d.branch_id=b.id
         LEFT JOIN customers c ON d.customer_id=c.id
-        WHERE 1=1
+        WHERE {ONE_PER_SALE}
     """
     rec_args = []
     if branch_id:
@@ -471,7 +474,7 @@ def pnl_report():
 
     # ── Top items by revenue + margin ─────────────────────────────────────
     top_sql = (
-        f"SELECT di.description, "
+        f"SELECT COALESCE(p.model, di.description) AS description, "
         f"       SUM(di.line_total) AS rev, "
         f"       SUM(di.quantity) AS qty, "
         f"       SUM(di.quantity * COALESCE(p.cost_price, 0)) AS cost "
@@ -479,7 +482,7 @@ def pnl_report():
         f"JOIN documents d ON di.document_id=d.id "
         f"LEFT JOIN products p ON di.product_id=p.id "
         f"WHERE d.doc_type='invoice' AND DATE(d.created_at) BETWEEN ? AND ? {b_filter} "
-        f"GROUP BY di.description ORDER BY rev DESC LIMIT 8"
+        f"GROUP BY COALESCE(CAST(di.product_id AS TEXT), di.description) ORDER BY rev DESC LIMIT 8"
     )
     top_items = query_db(top_sql, [date_from, date_to] + b_args)
 

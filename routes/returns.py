@@ -1,7 +1,9 @@
 from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, abort
 from flask_login import login_required, current_user
-from database import query_db, execute_db, get_db
+from database import query_db, execute_db, get_db, transaction, audit
+from services import stock as stock_svc
+from services.access import can_see_branch, sees_all_branches
 from services.numbering import get_next_number
 
 bp = Blueprint('returns', __name__, url_prefix='/returns')
@@ -18,31 +20,37 @@ RETURN_REASONS = [
 ]
 
 
-def _restore_stock(items, branch_id):
-    """Add returned quantities back to stock."""
-    for item in items:
-        if not item.get('product_id'):
-            continue
-        qty = abs(item.get('quantity', 1))
-        pid = item['product_id']
-        execute_db("""
-            INSERT INTO product_stock (product_id, branch_id, quantity)
-            VALUES (?,?,?)
-            ON CONFLICT(product_id, branch_id)
-            DO UPDATE SET quantity = quantity + excluded.quantity
-        """, (pid, branch_id, qty))
-        execute_db("""
-            INSERT INTO stock_movements
-              (product_id, branch_id, movement_type, quantity, recorded_by)
-            VALUES (?,?,'return',?,?)
-        """, (pid, branch_id, qty, current_user.id))
-        execute_db("""
-            UPDATE products SET
-              stock_count = (SELECT COALESCE(SUM(quantity),0)
-                             FROM product_stock WHERE product_id=?),
-              updated_at  = datetime('now','localtime')
-            WHERE id=?
-        """, (pid, pid))
+def _visible_invoice(doc_id):
+    doc = query_db("SELECT * FROM documents WHERE id=? AND doc_type='invoice'", (doc_id,), one=True)
+    if not doc or not can_see_branch(doc['branch_id']):
+        return None
+    return doc
+
+
+def _invoice_lines(doc_id):
+    """Invoice lines with how many are still returnable."""
+    return query_db("""
+        SELECT di.*, p.brand_category, COALESCE(p.track_units,0) AS track_units,
+               COALESCE((SELECT SUM(ri.quantity) FROM return_items ri
+                         WHERE ri.document_item_id = di.id), 0) AS returned,
+               -- what the customer actually paid per unit (after discount, with VAT)
+               ROUND(CASE WHEN di.quantity > 0 THEN di.line_total * 1.0 / di.quantity ELSE 0 END
+                     * (CASE WHEN d.is_vat THEN 1 + d.vat_rate / 100.0 ELSE 1 END), 2) AS paid_unit
+        FROM document_items di
+        JOIN documents d ON d.id = di.document_id
+        LEFT JOIN products p ON p.id = di.product_id
+        WHERE di.document_id = ?
+        ORDER BY di.id
+    """, (doc_id,))
+
+
+def _sold_units(doc_id, product_id):
+    """IMEIs sold on this invoice for this product that haven't come back yet."""
+    rows = query_db("""
+        SELECT imei FROM device_imeis
+        WHERE sold_document_id=? AND product_id=? AND status='sold'
+    """, (doc_id, product_id))
+    return [r['imei'] for r in rows]
 
 
 @bp.route('/')
@@ -98,86 +106,128 @@ def new():
 
     if request.method == 'POST':
         f           = request.form
-        branch_id   = int(f.get('branch_id') or default_branch)
-        document_id = f.get('document_id') or None
-        customer_id = f.get('customer_id') or None
-        walkin_name = f.get('walkin_name', '').strip() or None
         reason      = f.get('reason', '').strip()
         return_type = f.get('return_type', 'refund')
-        refund_amt  = float(f.get('refund_amount', 0) or 0)
         exch_notes  = f.get('exchange_notes', '').strip() or None
         notes       = f.get('notes', '').strip() or None
+        try:
+            refund_amt = float(f.get('refund_amount', 0) or 0)
+        except ValueError:
+            refund_amt = -1
 
-        # Parse returned items
-        descs    = f.getlist('item_description[]')
-        qtys     = f.getlist('item_qty[]')
-        prices   = f.getlist('item_price[]')
-        prod_ids = f.getlist('item_product_id[]')
-        di_ids   = f.getlist('item_di_id[]')
+        def _again(doc=None, doc_items=None):
+            return render_template('returns/new.html', branches=branches,
+                                   default_branch=default_branch, return_types=RETURN_TYPES,
+                                   reasons=RETURN_REASONS, doc=doc, doc_items=doc_items or [],
+                                   form=f)
 
-        items = []
-        for i, desc in enumerate(descs):
-            desc = desc.strip()
-            if not desc:
+        doc = _visible_invoice(f.get('document_id', type=int)) if f.get('document_id') else None
+        if not doc:
+            flash('Link the invoice the goods were sold on. Returns without an invoice are not '
+                  'accepted — it is how we know the item was ours and what was paid.', 'danger')
+            return _again()
+
+        lines   = {l['id']: l for l in _invoice_lines(doc['id'])}
+        di_ids  = f.getlist('item_di_id[]')
+        qtys    = f.getlist('item_qty[]')
+        imeis_l = f.getlist('item_imeis[]')
+        vat_mul = 1 + (float(doc['vat_rate'] or 0) / 100 if doc['is_vat'] else 0)
+
+        errors, items = [], []
+        for i, di in enumerate(di_ids):
+            line = lines.get(int(di)) if str(di).isdigit() else None
+            if not line:
+                errors.append('Every returned item must be a line from the linked invoice.')
                 continue
             try:
-                qty   = float(qtys[i]   or 1)
-                price = float(prices[i] or 0)
+                qty = float(qtys[i] or 0)
             except (IndexError, ValueError):
-                qty, price = 1, 0
-            items.append({
-                'description':      desc,
-                'quantity':         qty,
-                'unit_price':       price,
-                'line_total':       qty * price,
-                'product_id':       (prod_ids[i] if i < len(prod_ids) else None) or None,
-                'document_item_id': (di_ids[i]   if i < len(di_ids)   else None) or None,
-            })
+                qty = 0
+            if qty == 0:
+                continue
+            first = line['description'].splitlines()[0]
+            left = float(line['quantity']) - float(line['returned'])
+            if qty < 0 or qty != int(qty):
+                errors.append(f'{first}: quantity must be a whole number.')
+                continue
+            if qty > left + 1e-9:
+                errors.append(f'{first}: only {left:g} left to return '
+                              f'(sold {float(line["quantity"]):g}, already returned {float(line["returned"]):g}).')
+                continue
+            unit_paid = round(float(line['line_total']) / float(line['quantity']) * vat_mul, 2) \
+                if float(line['quantity']) else 0
+            units = []
+            if line['product_id'] and line['track_units']:
+                candidates = _sold_units(doc['id'], line['product_id'])
+                units = stock_svc.parse_imeis(imeis_l[i] if i < len(imeis_l) else '')
+                if not units and int(qty) == len(candidates):
+                    units = candidates
+                if len(units) != int(qty) or any(u not in candidates for u in units):
+                    errors.append(f'{first}: enter the IMEI of each device coming back '
+                                  f'({int(qty)}). Sold on this invoice: {", ".join(candidates) or "none"}.')
+                    continue
+            items.append({'line': line, 'description': line['description'], 'quantity': qty,
+                          'unit_price': unit_paid, 'line_total': round(qty * unit_paid, 2),
+                          'product_id': line['product_id'], 'units': units})
 
-        if not items:
-            flash('Add at least one returned item.', 'error')
-            return render_template('returns/new.html', branches=branches,
-                                   default_branch=default_branch,
-                                   return_types=RETURN_TYPES, reasons=RETURN_REASONS, form=f)
+        value = round(sum(it['line_total'] for it in items), 2)
+        if not errors and not items:
+            errors.append('Enter the quantity coming back for at least one item.')
+        if not reason:
+            errors.append('Choose the reason for the return.')
+        if return_type not in dict(RETURN_TYPES):
+            errors.append('Choose what happens: refund, exchange or store credit.')
+        if return_type == 'exchange':
+            refund_amt = 0
+        elif refund_amt < 0 or refund_amt > value + 0.5:
+            errors.append(f'Refund cannot be more than what the customer paid for these items '
+                          f'(TZS {value:,.0f}).')
+        if errors:
+            for e in errors:
+                flash(e, 'danger')
+            return _again(doc, _invoice_lines(doc['id']))
 
-        year          = datetime.now().year
-        return_number = get_next_number(branch_id, 'return', year)
-
-        ret_id = execute_db("""
-            INSERT INTO returns
-              (return_number, document_id, customer_id, walkin_name, branch_id,
-               reason, return_type, refund_amount, exchange_notes, notes,
-               status, created_by)
-            VALUES (?,?,?,?,?,?,?,?,?,?,'pending',?)
-        """, (return_number, document_id, customer_id, walkin_name, branch_id,
-              reason, return_type, refund_amt, exch_notes, notes, current_user.id))
-
-        for item in items:
-            execute_db("""
-                INSERT INTO return_items
-                  (return_id, document_item_id, product_id,
-                   description, quantity, unit_price, line_total)
-                VALUES (?,?,?,?,?,?,?)
-            """, (ret_id, item['document_item_id'], item['product_id'],
-                  item['description'], item['quantity'],
-                  item['unit_price'], item['line_total']))
-
-        # Restore stock immediately (pending approval can be added later)
-        _restore_stock(items, branch_id)
-
-        # Mark as approved since we restored stock
-        get_db().execute("UPDATE returns SET status='approved', processed_by=? WHERE id=?",
-                         (current_user.id, ret_id))
-        get_db().commit()
+        branch_id = doc['branch_id']   # goods go back to the branch that sold them
+        with transaction():
+            return_number = get_next_number(branch_id, 'return', datetime.now().year)
+            ret_id = execute_db("""
+                INSERT INTO returns
+                  (return_number, document_id, customer_id, walkin_name, branch_id,
+                   reason, return_type, refund_amount, exchange_notes, notes,
+                   status, processed_by, created_by)
+                VALUES (?,?,?,?,?,?,?,?,?,?,'approved',?,?)
+            """, (return_number, doc['id'], doc['customer_id'], doc['walkin_name'], branch_id,
+                  reason, return_type, refund_amt, exch_notes, notes,
+                  current_user.id, current_user.id))
+            for it in items:
+                execute_db("""
+                    INSERT INTO return_items
+                      (return_id, document_item_id, product_id,
+                       description, quantity, unit_price, line_total, imeis)
+                    VALUES (?,?,?,?,?,?,?,?)
+                """, (ret_id, it['line']['id'], it['product_id'], it['description'],
+                      it['quantity'], it['unit_price'], it['line_total'],
+                      ','.join(it['units']) or None))
+                if it['product_id']:
+                    stock_svc.move(it['product_id'], branch_id, it['quantity'], 'return',
+                                   ref_doc_id=doc['id'], notes=return_number)
+                if it['units']:
+                    ph = ','.join('?' * len(it['units']))
+                    execute_db(f"""UPDATE device_imeis SET status='in_stock', sold_document_id=NULL,
+                                   sold_at=NULL, branch_id=?, condition='used',
+                                   notes=? WHERE imei IN ({ph})""",
+                               [branch_id, f'Returned on {return_number}'] + it['units'])
+            audit('create', 'return', ret_id, return_number,
+                  f"{doc['doc_number']}: {return_type} TZS {refund_amt:,.0f}", branch_id)
 
         flash(f'Return {return_number} logged and stock restored.', 'success')
         return redirect(url_for('returns.view', ret_id=ret_id))
 
     # Pre-fill from invoice link
-    doc_id = request.args.get('doc_id')
+    doc_id = request.args.get('doc_id', type=int)
     doc    = None
     doc_items = []
-    if doc_id:
+    if doc_id and _visible_invoice(doc_id):
         doc = query_db("""
             SELECT d.*, COALESCE(c.name, d.walkin_name) AS customer_name,
                    c.id AS cust_id
@@ -185,14 +235,7 @@ def new():
             LEFT JOIN customers c ON c.id = d.customer_id
             WHERE d.id = ?
         """, (doc_id,), one=True)
-        if doc:
-            doc_items = query_db("""
-                SELECT di.*, p.brand_category
-                FROM document_items di
-                LEFT JOIN products p ON p.id = di.product_id
-                WHERE di.document_id = ?
-                ORDER BY di.id
-            """, (doc_id,))
+        doc_items = _invoice_lines(doc_id)
 
     return render_template('returns/new.html',
                            branches=branches,
@@ -250,10 +293,13 @@ def invoice_search():
         FROM documents d
         LEFT JOIN customers c ON c.id = d.customer_id
         WHERE d.doc_type = 'invoice'
-          AND (d.doc_number LIKE ? OR COALESCE(c.name, d.walkin_name) LIKE ?)
+          AND (d.doc_number LIKE ? OR COALESCE(c.name, d.walkin_name) LIKE ? OR c.phone LIKE ?)
+          AND (? OR d.branch_id = ?)
         ORDER BY d.created_at DESC
         LIMIT 10
-    """, (f'%{q}%', f'%{q}%'))
+    """, (f'%{q}%', f'%{q}%', f'%{q}%',
+          1 if sees_all_branches() else 0,
+          current_user.branch_id))
     return jsonify([{
         'id':            r['id'],
         'doc_number':    r['doc_number'],
@@ -266,11 +312,13 @@ def invoice_search():
 @bp.route('/invoice-items/<int:doc_id>')
 @login_required
 def invoice_items(doc_id):
-    items = query_db("""
-        SELECT di.id, di.description, di.quantity, di.unit_price, di.line_total,
-               di.product_id
-        FROM document_items di
-        WHERE di.document_id = ?
-        ORDER BY di.id
-    """, (doc_id,))
-    return jsonify([dict(r) for r in items])
+    if not _visible_invoice(doc_id):
+        return jsonify([])
+    out = []
+    for r in _invoice_lines(doc_id):
+        d = dict(r)
+        d['remaining'] = float(r['quantity']) - float(r['returned'])
+        d['unit_price'] = r['paid_unit']
+        d['sold_imeis'] = _sold_units(doc_id, r['product_id']) if r['track_units'] else []
+        out.append(d)
+    return jsonify(out)

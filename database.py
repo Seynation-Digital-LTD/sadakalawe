@@ -1,5 +1,6 @@
 import sqlite3
 import os
+from contextlib import contextmanager
 from flask import g, current_app
 from werkzeug.security import generate_password_hash
 
@@ -405,6 +406,35 @@ def _run_migrations(db):
         "ALTER TABLE device_imeis ADD COLUMN sold_at TEXT",
         "CREATE INDEX IF NOT EXISTS idx_device_imeis_product ON device_imeis(product_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_device_imeis_imei ON device_imeis(imei)",
+        # Last "What's new" popup each user has seen — 2026-11-25
+        "ALTER TABLE users ADD COLUMN whats_new_seen TEXT",
+        # Branch 3 is called "Sadakalawe 2" — 2026-11-25
+        "UPDATE branches SET name='Sadakalawe 2' WHERE short_code='AR2' AND name LIKE '%Tawi%'",
+        "UPDATE branches SET address='Arusha' WHERE short_code='AR2' AND address LIKE '%Weka Anwani%'",
+        # Which IMEIs came back on a return line — 2026-11-25
+        "ALTER TABLE return_items ADD COLUMN imeis TEXT",
+        # Who changed / deleted what — 2026-11-25
+        """CREATE TABLE IF NOT EXISTS audit_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER REFERENCES users(id),
+            action      TEXT NOT NULL,
+            entity      TEXT NOT NULL,
+            entity_id   INTEGER,
+            reference   TEXT,
+            details     TEXT,
+            branch_id   INTEGER,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at)",
+        # Failed logins, for throttling password guessing — 2026-11-25
+        """CREATE TABLE IF NOT EXISTS login_failures (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            username    TEXT NOT NULL,
+            ip          TEXT,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_login_failures ON login_failures(username, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_stock_mov_ref ON stock_movements(reference_doc_id, movement_type)",
         # app_settings table — added 2026-06-25, safe to re-run (CREATE IF NOT EXISTS)
         """CREATE TABLE IF NOT EXISTS app_settings (
             key        TEXT PRIMARY KEY,
@@ -426,7 +456,7 @@ def _seed_data(db):
         db.execute("""
             INSERT INTO branches (name, short_code, address) VALUES
             ('Arusha (Bondeni)', 'ARU', 'Bondeni Street, Opposite Mega Complex, Arusha'),
-            ('Arusha — Tawi 2',  'AR2', 'Arusha (Tawi la Pili) — Weka Anwani Hapa'),
+            ('Sadakalawe 2',     'AR2', 'Arusha'),
             ('Dar es Salaam',    'DAR', 'Kariakoo, Aggrey Street, Dar es Salaam')
         """)
     else:
@@ -434,11 +464,12 @@ def _seed_data(db):
         if not db.execute("SELECT id FROM branches WHERE short_code='AR2'").fetchone():
             db.execute("""
                 INSERT INTO branches (name, short_code, address)
-                VALUES ('Arusha — Tawi 2', 'AR2', 'Arusha (Tawi la Pili) — Weka Anwani Hapa')
+                VALUES ('Sadakalawe 2', 'AR2', 'Arusha')
             """)
 
-    # Admin user
-    if not db.execute("SELECT id FROM users WHERE username='admin'").fetchone():
+    # Default admin — only on a brand-new install. Checking for the username
+    # 'admin' re-created admin/admin123 every restart if the account was renamed.
+    if not db.execute("SELECT id FROM users LIMIT 1").fetchone():
         db.execute(
             "INSERT INTO users (username, password_hash, full_name, role, branch_id) "
             "VALUES (?,?,?,'admin',NULL)",
@@ -459,10 +490,14 @@ def _seed_data(db):
 
 
 def _seed_products(db):
-    """Seed the default product catalog. Skips if already seeded (>=200 SDA products)."""
-    if db.execute("SELECT COUNT(*) FROM products WHERE sku LIKE 'SDA-%'").fetchone()[0] >= 220:
+    """Seed the default product catalog on a brand-new install only.
+
+    Never deletes anything: once products exist (seeded or not) the catalogue
+    belongs to the owner. The old version wiped and re-seeded every SDA product
+    whenever fewer than 220 were left, which destroyed edited prices and stock.
+    """
+    if db.execute("SELECT COUNT(*) FROM products").fetchone()[0] > 0:
         return
-    db.execute("DELETE FROM products WHERE sku LIKE 'SDA-%'")  # clean partial seeds
 
     # Build lookup: (category_id, subcat_name) → subcat_id
     rows = db.execute("SELECT id, category_id, name FROM product_subcategories").fetchall()
@@ -964,10 +999,10 @@ def _seed_categories(db):
     # When rebuilding, also delete SDA products so they re-seed with fresh subcat IDs
     expected_subcats = 60
     current_subcats = db.execute("SELECT COUNT(*) FROM product_subcategories").fetchone()[0]
-    if current_subcats == expected_subcats:
+    if current_subcats >= expected_subcats:
         return  # already up-to-date
-    db.execute("DELETE FROM product_subcategories")
-    db.execute("DELETE FROM products WHERE sku LIKE 'SDA-%'")
+    # Insert-only: never delete subcategories or products here. Wiping them
+    # used to throw away prices, stock and cost prices the owner had edited.
 
     subcats = [
         # Laptops & Computers (1)
@@ -1006,7 +1041,7 @@ def _seed_categories(db):
     ]
     for cat_id, name, sort_order in subcats:
         db.execute(
-            "INSERT INTO product_subcategories (category_id, name, sort_order) VALUES (?,?,?)",
+            "INSERT OR IGNORE INTO product_subcategories (category_id, name, sort_order) VALUES (?,?,?)",
             (cat_id, name, sort_order)
         )
 
@@ -1051,6 +1086,12 @@ def _seed_categories(db):
         """, (cat_id, brand))
 
 
+# Filter for "one row per sale": the invoice stands for its proforma and delivery
+# note. Documents that never became an invoice (or have no batch) still show.
+ONE_PER_SALE = """(d.doc_type = 'invoice' OR d.batch_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM documents x WHERE x.batch_id = d.batch_id AND x.doc_type = 'invoice'))"""
+
+
 def query_db(query, args=(), one=False):
     cur = get_db().execute(query, args)
     rv = cur.fetchall()
@@ -1058,8 +1099,53 @@ def query_db(query, args=(), one=False):
     return (rv[0] if rv else None) if one else rv
 
 
+def in_transaction():
+    return g.get('_tx_depth', 0) > 0
+
+
+def commit_unless_in_transaction():
+    if not in_transaction():
+        get_db().commit()
+
+
 def execute_db(query, args=()):
     db = get_db()
     cur = db.execute(query, args)
-    db.commit()
+    commit_unless_in_transaction()
     return cur.lastrowid
+
+
+@contextmanager
+def transaction():
+    """All-or-nothing block: everything inside commits together or not at all.
+
+    execute_db() and the numbering service skip their own commits while a
+    transaction is open, so a crash half-way through a sale can no longer leave
+    half a sale (documents without items, stock moved without a document...).
+    """
+    db = get_db()
+    depth = g.get('_tx_depth', 0)
+    g._tx_depth = depth + 1
+    try:
+        yield db
+    except BaseException:
+        g._tx_depth = depth
+        if depth == 0:
+            db.rollback()
+        raise
+    g._tx_depth = depth
+    if depth == 0:
+        db.commit()
+
+
+def audit(action, entity, entity_id=None, reference=None, details=None, branch_id=None):
+    """Record who did what. Never let a logging problem break the real action."""
+    try:
+        from flask_login import current_user
+        uid = current_user.id if current_user and current_user.is_authenticated else None
+        execute_db("""
+            INSERT INTO audit_log (user_id, action, entity, entity_id, reference, details, branch_id)
+            VALUES (?,?,?,?,?,?,?)
+        """, (uid, action, entity, entity_id, reference, details, branch_id))
+    except Exception:
+        current_app.logger.exception('audit log write failed')

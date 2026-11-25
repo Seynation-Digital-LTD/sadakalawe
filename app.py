@@ -2,7 +2,7 @@ import os
 import logging
 import traceback
 from datetime import timedelta, datetime
-from flask import Flask, redirect, url_for, session, render_template
+from flask import Flask, redirect, url_for, session, render_template, flash
 from flask_login import LoginManager, current_user
 from database import close_db, init_db
 from models import User
@@ -14,7 +14,9 @@ def create_app():
     app = Flask(__name__)
     from config import SECRET_KEY
     app.config['SECRET_KEY'] = SECRET_KEY
-    app.config['DATABASE'] = os.path.join(os.path.dirname(__file__), 'data', 'sadakalawe.db')
+    # SADAKALAWE_DB lets the test suite run against a throwaway database.
+    app.config['DATABASE'] = (os.environ.get('SADAKALAWE_DB')
+                              or os.path.join(os.path.dirname(__file__), 'data', 'sadakalawe.db'))
     app.config['BACKUP_DIR'] = os.path.join(os.path.dirname(__file__), 'backups')
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
@@ -115,6 +117,8 @@ def create_app():
         return _VIP_TIERS[-1]
     app.jinja_env.globals['get_tier'] = _get_tier
     app.jinja_env.globals['VIP_TIERS'] = _VIP_TIERS
+    from config import PAYMENT_METHODS as _PM
+    app.jinja_env.globals['PAYMENT_METHODS'] = _PM
 
     from datetime import date as _date, timedelta as _td
     def _date_label(date_str):
@@ -145,6 +149,24 @@ def create_app():
             return d.strftime('%d %b %Y, %H:%M')
         except Exception:
             return s[:16]
+
+    from config import WHATS_NEW as _WHATS_NEW
+
+    @app.context_processor
+    def _whats_new():
+        show = (current_user.is_authenticated
+                and not current_user.must_change_password
+                and getattr(current_user, 'whats_new_seen', None) != _WHATS_NEW['version'])
+        return {'whats_new': _WHATS_NEW if show else None}
+
+    @app.route('/whats-new/seen', methods=['POST'])
+    def whats_new_seen():
+        from flask import jsonify
+        from database import execute_db
+        if current_user.is_authenticated:
+            execute_db("UPDATE users SET whats_new_seen=? WHERE id=?",
+                       (_WHATS_NEW['version'], current_user.id))
+        return jsonify(ok=True)
 
     @app.route('/')
     def index():
@@ -198,6 +220,11 @@ def create_app():
 
     @app.errorhandler(Exception)
     def unhandled_exception(e):
+        # Normal HTTP errors (404, 405, ...) are not crashes — return them as-is
+        # instead of logging a traceback and turning them into a 500.
+        from werkzeug.exceptions import HTTPException
+        if isinstance(e, HTTPException):
+            return e
         # Log the full traceback to the console for debugging
         logging.exception('Unhandled exception: %s', e)
         # In debug mode, let Flask show its interactive debugger

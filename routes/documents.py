@@ -1,3 +1,4 @@
+import html
 import re
 import secrets
 import zipfile
@@ -5,7 +6,10 @@ from urllib.parse import quote as urlquote
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, send_file, abort, current_app, session)
 from flask_login import login_required, current_user
-from database import execute_db, query_db
+from database import execute_db, query_db, transaction, audit
+from services import stock
+from services.access import can_see_branch, own_branch, sees_all_branches
+from services.customer_rules import name_error
 from services.numbering import get_next_number
 from services.pdf_generator import generate_pdf
 from services.email_service import send_document_email
@@ -73,6 +77,18 @@ def _fetch_doc_full(doc_id):
         JOIN users u ON d.created_by = u.id
         WHERE d.id=?
     """, (doc_id,), one=True)
+
+
+def _pdf_for(doc):
+    """Branded PDF for a document row from _fetch_doc_full (one place, used everywhere)."""
+    customer = (query_db("SELECT * FROM customers WHERE id=?", (doc['customer_id'],), one=True)
+                if doc['customer_id']
+                else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
+    items = query_db("SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc['id'],))
+    branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
+              'short_code': doc['short_code']}
+    return generate_pdf(dict(doc), dict(customer) if customer else None,
+                        [dict(i) for i in items], branch, doc['staff_name'])
 
 
 def _parse_items(form):
@@ -171,84 +187,100 @@ def _register_units(items, doc_id, customer_id):
             """, (doc_id, imei))
 
 
-def _deduct_stock(items, branch_id, invoice_id):
-    """Deduct sold quantities from per-branch stock and record movements.
-
-    Lines typed by hand (no product_id) have nothing to deduct from, and products
-    flagged track_units still need their IMEIs registered on the document — both
-    are flagged to the user rather than failing silently.
-    """
-    untracked = [i['description'] for i in items if not i['product_id']]
-    if untracked:
-        flash('Stock was not adjusted for hand-typed lines: '
-              + ', '.join(untracked)
-              + '. Pick items from the catalogue so stock stays accurate.', 'warning')
-
-    for item in items:
-        if not item['product_id']:
-            continue
-        qty = abs(item['quantity'])
-        pid = item['product_id']
-        # Update product_stock
-        execute_db("""
-            INSERT INTO product_stock (product_id, branch_id, quantity)
-            VALUES (?,?,?)
-            ON CONFLICT(product_id, branch_id)
-            DO UPDATE SET quantity = MAX(0, quantity - excluded.quantity)
-        """, (pid, branch_id, qty))
-        # Log movement
-        execute_db("""
-            INSERT INTO stock_movements
-              (product_id, branch_id, movement_type, quantity, reference_doc_id, recorded_by)
-            VALUES (?,?,'sale',?,?,?)
-        """, (pid, branch_id, -qty, invoice_id, current_user.id))
-        # Sync global stock_count
-        execute_db("""
-            UPDATE products SET
-              stock_count = (SELECT COALESCE(SUM(quantity),0)
-                             FROM product_stock WHERE product_id=?),
-              updated_at  = datetime('now','localtime')
-            WHERE id=?
-        """, (pid, pid))
+def _can_see(doc):
+    return can_see_branch(doc['branch_id'])
 
 
-def _restore_invoice_stock(invoice_id):
-    """Restore stock when an invoice is deleted/voided."""
-    doc = query_db("SELECT branch_id FROM documents WHERE id=?", (invoice_id,), one=True)
-    if not doc:
-        return
-    branch_id = doc['branch_id']
-    items = query_db(
-        "SELECT product_id, quantity FROM document_items WHERE document_id=? AND product_id IS NOT NULL",
-        (invoice_id,))
-    for item in items:
-        pid = item['product_id']
-        qty = abs(item['quantity'])
-        execute_db("""
-            INSERT INTO product_stock (product_id, branch_id, quantity)
-            VALUES (?,?,?)
-            ON CONFLICT(product_id, branch_id)
-            DO UPDATE SET quantity = quantity + excluded.quantity
-        """, (pid, branch_id, qty))
-        execute_db("""
-            UPDATE products SET
-              stock_count = (SELECT COALESCE(SUM(quantity),0)
-                             FROM product_stock WHERE product_id=?),
-              updated_at  = datetime('now','localtime')
-            WHERE id=?
-        """, (pid, pid))
-    # Release any individually tracked units back into stock. device_sales rows are
-    # cascade-deleted with the document, so this has to run before that happens.
-    execute_db("""
-        UPDATE device_imeis
-           SET status='in_stock', sold_document_id=NULL, sold_at=NULL
-         WHERE sold_document_id=?
-            OR imei IN (SELECT imei FROM device_sales WHERE document_id=? AND imei IS NOT NULL)
-    """, (invoice_id, invoice_id))
+def _doc_or_404(doc_id):
+    doc = _fetch_doc_full(doc_id)
+    if not doc or not _can_see(doc):
+        abort(404)
+    return doc
 
-    # Remove the sale stock movements for this invoice
-    execute_db("DELETE FROM stock_movements WHERE reference_doc_id=? AND movement_type='sale'",
-               (invoice_id,))
+
+def _batch_docs(doc):
+    """All documents of the same sale (invoice + proforma + delivery note)."""
+    if doc['batch_id']:
+        return query_db("SELECT * FROM documents WHERE batch_id=? ORDER BY id", (doc['batch_id'],))
+    return [query_db("SELECT * FROM documents WHERE id=?", (doc['id'],), one=True)]
+
+
+def _customer_problem(customer_id):
+    """None if the sale can be recorded against this customer, else a message."""
+    if not customer_id:
+        return ('Choose the customer from the list, or press "Save" to add them with '
+                'their real name and phone number.')
+    c = query_db("SELECT id, name, tin FROM customers WHERE id=?", (customer_id,), one=True)
+    if not c:
+        return 'That customer no longer exists — search again or add them.'
+    err = name_error(c['name'], c['tin'])
+    if err:
+        return (f'The saved customer "{c["name"]}" does not have a proper name. '
+                f'Open Customers → {c["name"]} → Edit and enter their real full name first.')
+    return None
+
+
+def _reverse_stock(batch, branch_id, release_units=True):
+    """Put back whatever these documents took out of stock. Returns {pid: qty}."""
+    ids  = [d['id'] for d in batch]
+    held = stock.doc_sold_qty(ids)
+    if held:
+        stock.reverse_sales(ids, branch_id, release_units=release_units)
+        return held
+    # Older invoices may have deducted stock without logging a movement.
+    inv = next((d for d in batch if d['doc_type'] == 'invoice'), None)
+    if inv:
+        rows = query_db("SELECT product_id, quantity FROM document_items "
+                        "WHERE document_id=? AND product_id IS NOT NULL", (inv['id'],))
+        held = stock.qty_by_product([dict(r) for r in rows])
+        for pid, qty in held.items():
+            stock.put_back(pid, branch_id, qty)
+    if release_units:
+        stock.release_units_of(ids)
+    return held
+
+
+def _linked_records(ids):
+    """Other records that point at these documents — they block a delete."""
+    if not ids:
+        return []
+    ph = ','.join('?' * len(ids))
+    found = []
+    for table, col, label in [('returns', 'document_id', 'return'),
+                              ('financing_plans', 'document_id', 'financing plan'),
+                              ('tradeins', 'linked_document_id', 'trade-in'),
+                              ('repair_jobs', 'linked_document_id', 'repair job')]:
+        n = query_db(f"SELECT COUNT(*) AS n FROM {table} WHERE {col} IN ({ph})", ids, one=True)['n']
+        if n:
+            found.append(f'{n} {label}{"s" if n > 1 else ""}')
+    return found
+
+
+def _render_new(branches, default_branch_id, nonce, form=None):
+    """New-document page. On a validation error the staff member's input is kept."""
+    prefill_items, prefill_customer = [], None
+    if form is not None:
+        cols = [form.getlist(k) for k in ('item_description[]', 'item_qty[]', 'item_price[]',
+                                          'item_specs[]', 'item_discount[]', 'item_product_id[]')]
+        for i, desc in enumerate(cols[0]):
+            if not desc.strip():
+                continue
+            g = lambda c: (cols[c][i] if i < len(cols[c]) else '')
+            prefill_items.append({'description': desc, 'qty': g(1) or 1, 'price': g(2),
+                                  'specs': g(3), 'discount': g(4) or 0, 'product_id': g(5)})
+        cid = form.get('customer_id')
+        if cid:
+            c = query_db("SELECT id, name, phone FROM customers WHERE id=?", (cid,), one=True)
+            if c:
+                prefill_customer = dict(c)
+        if not prefill_customer and form.get('walkin_name'):
+            prefill_customer = {'id': '', 'name': form.get('walkin_name'), 'phone': ''}
+        session['doc_form_nonce'] = nonce   # let them fix the problem and resubmit
+    return render_template('documents/new.html', branches=branches,
+                           vat_rate=VAT_RATE, default_branch_id=default_branch_id,
+                           today=date.today().isoformat(), form_nonce=nonce,
+                           prefill_items=prefill_items, prefill_customer=prefill_customer,
+                           form=form or {})
 
 
 @bp.route('/')
@@ -274,7 +306,7 @@ def list():
     """
     args = []
 
-    if not current_user.is_admin and current_user.branch_id:
+    if not sees_all_branches():
         sql += " AND d.branch_id=?"
         args.append(current_user.branch_id)
     elif branch_filter:
@@ -358,134 +390,113 @@ def new():
             return redirect(url_for('documents.new'))
         # ───────────────────────────────────────────────────────────────
 
-        branch_id       = int(request.form['branch_id'])
-        customer_id     = request.form.get('customer_id') or None
-        walkin_name     = tc(request.form.get('walkin_name', '')) or None
+        branch_id       = own_branch(request.form.get('branch_id'))
+        customer_id     = request.form.get('customer_id', type=int)
         is_vat          = 1 if request.form.get('is_vat') else 0
         notes           = sc(request.form.get('notes', '')) or None
         efd_reference   = request.form.get('efd_reference', '').strip() or None
-        validity_days   = int(request.form.get('validity_days', 7) or 7)
-        vat_rate        = float(request.form.get('vat_rate', VAT_RATE) or VAT_RATE)
+        validity_days   = request.form.get('validity_days', 7, type=int) or 7
+        vat_rate        = request.form.get('vat_rate', VAT_RATE, type=float) or VAT_RATE
         payment_type    = request.form.get('payment_type', 'cash')
         credit_due_date = request.form.get('credit_due_date', '').strip() or None
 
         # payment_type is either 'credit' or the actual method (cash/card/mpesa/…)
         if payment_type == 'credit':
-            payment_status = 'credit'
-            payment_method = 'credit'
-            amount_paid    = 0.0
+            payment_status, payment_method = 'credit', 'credit'
         else:
-            payment_status = 'paid'
-            payment_method = payment_type  # store the specific method
-            amount_paid    = 0.0  # set to total below
+            payment_status, payment_method = 'paid', payment_type
 
-        items = _parse_items(request.form)
+        items  = _parse_items(request.form)
+        errors = []
+        if not branch_id:
+            errors.append('Choose the branch the goods are sold from.')
+        problem = _customer_problem(customer_id)
+        if problem:
+            errors.append(problem)
         if not items:
-            flash('Please add at least one item.', 'danger')
-            return render_template('documents/new.html', branches=branches,
-                                   vat_rate=VAT_RATE, default_branch_id=default_branch_id)
-
-        # Unit-tracked products must have their IMEIs picked before the sale is recorded
-        unit_errors = _validate_units(items, branch_id)
-        if unit_errors:
-            for msg in unit_errors:
+            errors.append('Please add at least one item.')
+        if branch_id and items:
+            # Every item must come out of this branch's stock — no selling what isn't there.
+            errors += stock.check_sale(items, branch_id)
+            if not errors:
+                errors += _validate_units(items, branch_id)
+        if errors:
+            for msg in errors:
                 flash(msg, 'danger')
-            session['doc_form_nonce'] = submitted_nonce  # let them resubmit
-            return render_template('documents/new.html', branches=branches,
-                                   vat_rate=VAT_RATE, default_branch_id=default_branch_id,
-                                   today=date.today().isoformat(),
-                                   form_nonce=submitted_nonce)
+            return _render_new(branches, default_branch_id, submitted_nonce, request.form)
 
-        subtotal   = sum(i['line_total'] for i in items)
+        subtotal   = round(sum(i['line_total'] for i in items), 2)
         vat_amount = round(subtotal * vat_rate / 100, 2) if is_vat else 0
-        total      = subtotal + vat_amount
+        total      = round(subtotal + vat_amount, 2)
+        amount_paid = 0.0 if payment_type == 'credit' else total
         year       = datetime.now().year
 
-        if payment_type != 'credit':
-            amount_paid = total  # fully paid on creation for all non-credit methods
-
         # ── Server-side idempotency: block genuine duplicates ──────────
-        # If the same staff created an invoice for the same customer with the
-        # same total at this branch within the last 5 minutes, redirect to it.
+        # Same staff, same customer, same total, same branch within 2 minutes = a double click.
         dup_check = query_db("""
-            SELECT d.id FROM documents d
-            WHERE d.created_by = ?
-              AND d.branch_id  = ?
-              AND d.doc_type   = 'invoice'
-              AND d.total      = ?
-              AND (d.customer_id = ? OR (d.customer_id IS NULL AND d.walkin_name = ?))
-              AND d.created_at >= datetime('now','localtime','-5 minutes')
+            SELECT d.id, d.batch_id FROM documents d
+            WHERE d.created_by = ? AND d.branch_id = ? AND d.doc_type = 'invoice'
+              AND d.total = ? AND d.customer_id = ?
+              AND d.created_at >= datetime('now','localtime','-2 minutes')
             ORDER BY d.id DESC LIMIT 1
-        """, (current_user.id, branch_id, total,
-              customer_id, walkin_name))
+        """, (current_user.id, branch_id, total, customer_id), one=True)
         if dup_check:
-            # Find the full batch for that invoice
-            inv_id = dup_check[0]['id']
-            inv_doc = query_db("SELECT batch_id FROM documents WHERE id=?", (inv_id,), one=True)
-            if inv_doc and inv_doc['batch_id']:
-                batch_docs = query_db(
-                    "SELECT id FROM documents WHERE batch_id=? ORDER BY id",
-                    (inv_doc['batch_id'],))
+            if dup_check['batch_id']:
+                batch_docs = query_db("SELECT id FROM documents WHERE batch_id=? ORDER BY id",
+                                      (dup_check['batch_id'],))
                 ids_str = ','.join(str(r['id']) for r in batch_docs)
             else:
-                ids_str = str(inv_id)
+                ids_str = str(dup_check['id'])
             flash('This sale was already recorded. Showing the existing documents.', 'info')
             return redirect(url_for('documents.result', ids=ids_str))
         # ────────────────────────────────────────────────────────────────
 
         created_ids = []
         invoice_id  = None
-        delivery_note_id = None
         batch_id    = None   # set from invoice number on first iteration
 
-        for doc_type in DOC_TYPES_ORDER:
-            doc_number = get_next_number(branch_id, doc_type, year)
-            if doc_type == 'invoice':
-                batch_id = doc_number   # use invoice number as the shared batch key
-            doc_id = execute_db("""
-                INSERT INTO documents
-                  (doc_number, doc_type, branch_id, customer_id, walkin_name, created_by,
-                   is_vat, vat_rate, efd_reference, subtotal, vat_amount,
-                   total, notes, validity_days,
-                   payment_status, payment_method, amount_paid, credit_due_date, batch_id)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, (doc_number, doc_type, branch_id, customer_id, walkin_name, current_user.id,
-                  is_vat, vat_rate, efd_reference, subtotal, vat_amount, total,
-                  notes, validity_days, payment_status, payment_method,
-                  amount_paid, credit_due_date, batch_id))
+        # One sale = one all-or-nothing transaction: the three documents, their
+        # items, the stock coming off the shelf and the IMEIs marked sold.
+        with transaction():
+            for doc_type in DOC_TYPES_ORDER:
+                doc_number = get_next_number(branch_id, doc_type, year)
+                if doc_type == 'invoice':
+                    batch_id = doc_number   # use invoice number as the shared batch key
+                doc_id = execute_db("""
+                    INSERT INTO documents
+                      (doc_number, doc_type, branch_id, customer_id, walkin_name, created_by,
+                       is_vat, vat_rate, efd_reference, subtotal, vat_amount,
+                       total, notes, validity_days,
+                       payment_status, payment_method, amount_paid, credit_due_date, batch_id)
+                    VALUES (?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, (doc_number, doc_type, branch_id, customer_id, current_user.id,
+                      is_vat, vat_rate, efd_reference, subtotal, vat_amount, total,
+                      notes, validity_days, payment_status, payment_method,
+                      amount_paid, credit_due_date, batch_id))
 
-            for item in items:
-                execute_db("""
-                    INSERT INTO document_items
-                      (document_id, product_id, description, quantity, unit_price, discount_pct, line_total)
-                    VALUES (?,?,?,?,?,?,?)
-                """, (doc_id, item['product_id'], item['description'],
-                      item['quantity'], item['unit_price'],
-                      item.get('discount_pct', 0), item['line_total']))
+                for item in items:
+                    execute_db("""
+                        INSERT INTO document_items
+                          (document_id, product_id, description, quantity, unit_price, discount_pct, line_total)
+                        VALUES (?,?,?,?,?,?,?)
+                    """, (doc_id, item['product_id'], item['description'],
+                          item['quantity'], item['unit_price'],
+                          item.get('discount_pct', 0), item['line_total']))
 
-            created_ids.append(doc_id)
-            if doc_type == 'invoice':
-                invoice_id = doc_id
-            elif doc_type == 'delivery_note':
-                delivery_note_id = doc_id
+                created_ids.append(doc_id)
+                if doc_type == 'invoice':
+                    invoice_id = doc_id
 
-        # Deduct stock ONCE per sale. Goods leave on either the invoice or the
-        # delivery note — when both exist they're the same sale, so the invoice
-        # carries the movement and the DN must not deduct a second time.
-        stock_doc_id = invoice_id or delivery_note_id
-        if stock_doc_id:
-            _deduct_stock(items, branch_id, stock_doc_id)
-            _register_units(items, stock_doc_id, customer_id)
+            # Stock comes off ONCE per sale, carried by the invoice.
+            stock.sell(items, branch_id, invoice_id)
+            _register_units(items, invoice_id, customer_id)
 
         ids_str = ','.join(str(i) for i in created_ids)
         return redirect(url_for('documents.result', ids=ids_str))
 
     form_nonce = secrets.token_hex(16)
     session['doc_form_nonce'] = form_nonce
-    return render_template('documents/new.html', branches=branches,
-                           vat_rate=VAT_RATE, default_branch_id=default_branch_id,
-                           today=date.today().isoformat(),
-                           form_nonce=form_nonce)
+    return _render_new(branches, default_branch_id, form_nonce)
 
 
 @bp.route('/result')
@@ -494,7 +505,7 @@ def result():
     ids_str = request.args.get('ids', '')
     ids  = [int(i) for i in ids_str.split(',') if i.strip().isdigit()]
     docs = [_fetch_doc_full(i) for i in ids]
-    docs = [d for d in docs if d]
+    docs = [d for d in docs if d and _can_see(d)]
     return render_template('documents/result.html', docs=docs,
                            doc_type_labels=DOC_TYPE_LABELS, ids_str=ids_str)
 
@@ -510,20 +521,9 @@ def download_zip():
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
         for doc_id in ids:
             doc = _fetch_doc_full(doc_id)
-            if not doc:
+            if not doc or not _can_see(doc):
                 continue
-            customer = (query_db("SELECT * FROM customers WHERE id=?",
-                                 (doc['customer_id'],), one=True)
-                        if doc['customer_id']
-                        else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
-            items  = query_db(
-                "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
-            branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
-                      'short_code': doc['short_code']}
-            pdf_buf = generate_pdf(dict(doc),
-                                   dict(customer) if customer else None,
-                                   [dict(i) for i in items],
-                                   branch, doc['staff_name'])
+            pdf_buf = _pdf_for(doc)
             zf.writestr(f"{doc['doc_number']}.pdf", pdf_buf.read())
 
     buffer.seek(0)
@@ -552,20 +552,9 @@ def download_merged():
 
     for doc_id in ids:
         doc = _fetch_doc_full(doc_id)
-        if not doc:
+        if not doc or not _can_see(doc):
             continue
-        customer = (query_db("SELECT * FROM customers WHERE id=?",
-                             (doc['customer_id'],), one=True)
-                    if doc['customer_id']
-                    else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
-        items  = query_db(
-            "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
-        branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
-                  'short_code': doc['short_code']}
-        pdf_buf = generate_pdf(dict(doc),
-                               dict(customer) if customer else None,
-                               [dict(i) for i in items],
-                               branch, doc['staff_name'])
+        pdf_buf = _pdf_for(doc)
         reader = PdfReader(pdf_buf)
         for page in reader.pages:
             writer.add_page(page)
@@ -594,7 +583,7 @@ def view_batch(batch_id):
         WHERE d.batch_id=?
         ORDER BY d.doc_type
     """, (batch_id,))
-    if not docs:
+    if not docs or not _can_see(docs[0]):
         flash('Sale batch not found.', 'danger')
         return redirect(url_for('documents.list'))
     ids_str = ','.join(str(d['id']) for d in docs)
@@ -606,7 +595,7 @@ def view_batch(batch_id):
 @login_required
 def view(doc_id):
     doc = _fetch_doc_full(doc_id)
-    if not doc:
+    if not doc or not _can_see(doc):
         flash('Document not found.', 'danger')
         return redirect(url_for('documents.list'))
     items = query_db("""
@@ -637,38 +626,47 @@ def view(doc_id):
 @login_required
 @perm_required('download_documents')
 def download_pdf(doc_id):
-    doc = _fetch_doc_full(doc_id)
-    if not doc:
-        abort(404)
-    customer = (query_db("SELECT * FROM customers WHERE id=?",
-                         (doc['customer_id'],), one=True)
-                if doc['customer_id']
-                else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
-    items  = query_db(
-        "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
-    branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
-              'short_code': doc['short_code']}
-    pdf_buf = generate_pdf(dict(doc),
-                           dict(customer) if customer else None,
-                           [dict(i) for i in items],
-                           branch, doc['staff_name'])
+    doc = _doc_or_404(doc_id)
+    pdf_buf = _pdf_for(doc)
     return send_file(pdf_buf, mimetype='application/pdf',
                      as_attachment=False,
                      download_name=f"{doc['doc_number']}.pdf")
+
+
+def _delete_docs(docs):
+    """Delete documents, putting their stock back. Refuses if anything links to them."""
+    ids = [d['id'] for d in docs]
+    nums = ', '.join(d['doc_number'] for d in docs)
+    blockers = _linked_records(ids)
+    if blockers:
+        flash(f'Cannot delete {nums}: {", ".join(blockers)} point to this sale. '
+              f'Remove or re-link those first.', 'danger')
+        return False
+    lead = next((d for d in docs if d['doc_type'] == 'invoice'), docs[0])
+    with transaction():
+        _reverse_stock(docs, lead['branch_id'])
+        ph = ','.join('?' * len(ids))
+        execute_db(f"DELETE FROM document_items WHERE document_id IN ({ph})", ids)
+        execute_db(f"DELETE FROM documents WHERE id IN ({ph})", ids)
+        audit('delete', 'document', lead['id'], nums,
+              f"total TZS {float(lead['total'] or 0):,.0f}; customer_id {lead['customer_id']}",
+              lead['branch_id'])
+    flash(f'Deleted: {nums}. Stock put back.', 'success')
+    return True
 
 
 @bp.route('/<int:doc_id>/delete', methods=['POST'])
 @login_required
 @perm_required('void_documents')
 def delete(doc_id):
-    doc = query_db("SELECT id, doc_number, doc_type FROM documents WHERE id=?", (doc_id,), one=True)
-    if doc:
-        if doc['doc_type'] == 'invoice':
-            _restore_invoice_stock(doc_id)
-        execute_db("DELETE FROM document_items WHERE document_id=?", (doc_id,))
-        execute_db("DELETE FROM documents WHERE id=?", (doc_id,))
-        flash(f'Document {doc["doc_number"]} deleted.', 'success')
-    return redirect(url_for('documents.list'))
+    doc = _doc_or_404(doc_id)
+    batch = _batch_docs(doc)
+    # The invoice IS the sale: deleting it takes its proforma and delivery note with it,
+    # otherwise they'd be left describing a sale that no longer exists.
+    targets = batch if doc['doc_type'] == 'invoice' else [d for d in batch if d['id'] == doc_id]
+    if _delete_docs(targets):
+        return redirect(url_for('documents.list'))
+    return redirect(url_for('documents.view', doc_id=doc_id))
 
 
 @bp.route('/<int:doc_id>/delete-batch', methods=['POST'])
@@ -676,46 +674,19 @@ def delete(doc_id):
 @perm_required('void_documents')
 def delete_batch(doc_id):
     """Delete an entire batch (invoice + proforma + delivery note) at once."""
-    lead = query_db("SELECT id, doc_number, doc_type, batch_id FROM documents WHERE id=?",
-                    (doc_id,), one=True)
-    if not lead:
-        flash('Document not found.', 'danger')
+    doc = _doc_or_404(doc_id)
+    if _delete_docs(_batch_docs(doc)):
         return redirect(url_for('documents.list'))
-
-    # Gather all docs in the batch
-    if lead['batch_id']:
-        batch_docs = query_db(
-            "SELECT id, doc_number, doc_type FROM documents WHERE batch_id=?",
-            (lead['batch_id'],))
-    else:
-        batch_docs = [lead]
-
-    # Restore stock from the invoice in the batch
-    for bdoc in batch_docs:
-        if bdoc['doc_type'] == 'invoice':
-            _restore_invoice_stock(bdoc['id'])
-            break
-
-    # Delete items then documents
-    for bdoc in batch_docs:
-        execute_db("DELETE FROM document_items WHERE document_id=?", (bdoc['id'],))
-    ids = [bdoc['id'] for bdoc in batch_docs]
-    placeholders = ','.join('?' * len(ids))
-    execute_db(f"DELETE FROM documents WHERE id IN ({placeholders})", ids)
-
-    nums = ', '.join(bdoc['doc_number'] for bdoc in batch_docs)
-    flash(f'Deleted: {nums}', 'success')
-    return redirect(url_for('documents.list'))
+    return redirect(url_for('documents.view', doc_id=doc_id))
 
 
 @bp.route('/<int:doc_id>/edit', methods=['GET', 'POST'])
 @login_required
 @perm_required('create_documents')
 def edit(doc_id):
-    doc = _fetch_doc_full(doc_id)
-    if not doc:
-        flash('Document not found.', 'danger')
-        return redirect(url_for('documents.list'))
+    """Fix a mistake on a sale. The change is applied to all documents of the sale
+    (invoice, proforma, delivery note) and stock is re-calculated against the new items."""
+    doc = _doc_or_404(doc_id)
 
     if not current_user.is_admin and doc['created_by'] != current_user.id:
         flash('You can only edit your own documents.', 'danger')
@@ -724,18 +695,55 @@ def edit(doc_id):
     old_items = query_db("SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
     branches  = query_db("SELECT * FROM branches ORDER BY id")
 
+    def _form_again():
+        return render_template('documents/edit.html', doc=doc, items=old_items,
+                               branches=branches, vat_rate=VAT_RATE,
+                               today=date.today().isoformat())
+
     if request.method == 'POST':
         parsed_items = _parse_items(request.form)
+        customer_id  = request.form.get('customer_id', type=int)
+        batch        = _batch_docs(doc)
+        branch_id    = doc['branch_id']
+        invoice      = next((d for d in batch if d['doc_type'] == 'invoice'), None)
+
+        errors = []
+        if query_db(f"SELECT 1 FROM returns WHERE document_id IN ({','.join('?' * len(batch))}) LIMIT 1",
+                    [d['id'] for d in batch], one=True):
+            errors.append('This sale already has a return logged against it, so it can no longer be '
+                          'edited (stock and refunds would no longer add up).')
         if not parsed_items:
-            flash('At least one item is required.', 'danger')
-            return redirect(url_for('documents.edit', doc_id=doc_id))
+            errors.append('At least one item is required.')
+        problem = _customer_problem(customer_id)
+        if problem:
+            errors.append(problem)
+
+        held = stock.doc_sold_qty([d['id'] for d in batch])
+        if not held and invoice:
+            # Older invoice that took stock without logging a movement.
+            held = stock.qty_by_product([dict(r) for r in query_db(
+                "SELECT product_id, quantity FROM document_items WHERE document_id=? "
+                "AND product_id IS NOT NULL", (invoice['id'],))])
+        takes_stock = bool(invoice) or bool(held)
+        if parsed_items and takes_stock:
+            errors += stock.check_sale(parsed_items, branch_id, giving_back=held)
+            # IMEI phones: the exact units sold can't be swapped by editing.
+            old_tracked = {pid: q for pid, q in stock.qty_by_product([dict(r) for r in old_items]).items()
+                           if stock.is_tracked(pid)}
+            new_tracked = {pid: q for pid, q in stock.qty_by_product(parsed_items).items()
+                           if stock.is_tracked(pid)}
+            if old_tracked != new_tracked:
+                errors.append('Items with IMEI numbers (phones, laptops…) cannot be added, removed or '
+                              'changed in quantity by editing. Log a Return for the device, or delete '
+                              'this sale and record it again picking the right IMEIs.')
+        if errors:
+            for e in errors:
+                flash(e, 'danger')
+            return _form_again()
 
         is_vat         = bool(request.form.get('is_vat'))
-        vat_rate_val   = float(request.form.get('vat_rate') or VAT_RATE)
-        customer_id    = request.form.get('customer_id') or None
-        walkin_name    = request.form.get('walkin_name', '').strip() or None
+        vat_rate_val   = request.form.get('vat_rate', VAT_RATE, type=float) or VAT_RATE
         payment_type   = request.form.get('payment_type', 'cash')
-        payment_method = request.form.get('_method', doc['payment_method'] or 'cash')
         credit_due_date = request.form.get('credit_due_date') or None
         notes          = request.form.get('notes', '').strip() or None
         efd_reference  = request.form.get('efd_reference', '').strip() or None
@@ -743,58 +751,70 @@ def edit(doc_id):
         subtotal    = round(sum(i['line_total'] for i in parsed_items), 2)
         vat_amount  = round(subtotal * vat_rate_val / 100, 2) if is_vat else 0.0
         total       = round(subtotal + vat_amount, 2)
-        pay_status  = 'credit' if payment_type == 'credit' else (
-            'paid' if total <= (doc['amount_paid'] or 0) + 0.01 else doc['payment_status']
-        )
 
-        # Restore old stock for invoices before rewriting items
-        if doc['doc_type'] == 'invoice':
-            for oi in old_items:
-                if oi['product_id']:
-                    pid = oi['product_id']
-                    qty = abs(float(oi['quantity']))
+        # Money: payments recorded in Credits are real money and are never undone here.
+        money_doc = invoice or doc
+        recorded  = float(query_db("SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE document_id=?",
+                                   (money_doc['id'],), one=True)['s'])
+        was_credit = money_doc['payment_status'] in ('credit', 'partial')
+        if payment_type == 'credit':
+            amount_paid, method = recorded, 'credit'
+        elif was_credit:
+            if recorded > 0:
+                flash('This invoice already has payments recorded — collect the balance under '
+                      'Credits instead of switching it to "Pay Now".', 'danger')
+                return _form_again()
+            amount_paid, method = total, payment_type      # it was in fact paid at the till
+        else:
+            # Was paid at the till: the customer paid what was charged then. If the
+            # total went up, the difference shows up in Credits to be collected.
+            amount_paid, method = float(money_doc['amount_paid'] or 0), payment_type
+        if amount_paid >= total - 0.01:
+            pay_status = 'paid'
+        elif amount_paid > 0:
+            pay_status = 'partial'
+        else:
+            pay_status = 'credit'
+
+        with transaction():
+            if takes_stock:
+                _reverse_stock(batch, branch_id, release_units=False)
+            for d in batch:
+                execute_db("DELETE FROM document_items WHERE document_id=?", (d['id'],))
+                for item in parsed_items:
                     execute_db("""
-                        INSERT INTO product_stock (product_id, branch_id, quantity) VALUES (?,?,?)
-                        ON CONFLICT(product_id, branch_id)
-                        DO UPDATE SET quantity = quantity + excluded.quantity
-                    """, (pid, doc['branch_id'], qty))
-                    execute_db("""
-                        UPDATE products SET
-                          stock_count=(SELECT COALESCE(SUM(quantity),0)
-                                       FROM product_stock WHERE product_id=?),
-                          updated_at=datetime('now','localtime')
-                        WHERE id=?
-                    """, (pid, pid))
+                        INSERT INTO document_items
+                          (document_id, product_id, description, quantity, unit_price, line_total, discount_pct)
+                        VALUES (?,?,?,?,?,?,?)
+                    """, (d['id'], item['product_id'], item['description'], item['quantity'],
+                          item['unit_price'], item['line_total'], item['discount_pct']))
+                execute_db("""
+                    UPDATE documents SET
+                      customer_id=?, walkin_name=NULL, payment_method=?, payment_status=?,
+                      amount_paid=?, credit_due_date=?, notes=?, is_vat=?, vat_rate=?,
+                      efd_reference=?, subtotal=?, vat_amount=?, total=?,
+                      updated_at=datetime('now','localtime')
+                    WHERE id=?
+                """, (customer_id, method, pay_status, amount_paid,
+                      credit_due_date if pay_status != 'paid' else None, notes,
+                      1 if is_vat else 0, vat_rate_val, efd_reference,
+                      subtotal, vat_amount, total, d['id']))
+            if takes_stock:
+                stock_doc = invoice or doc
+                stock.sell(parsed_items, branch_id, stock_doc['id'])
+                ph = ','.join('?' * len(batch))
+                execute_db(f"UPDATE device_sales SET customer_id=? WHERE document_id IN ({ph})",
+                           [customer_id] + [d['id'] for d in batch])
+            audit('edit', 'document', doc_id, doc['doc_number'],
+                  f"total {float(doc['total'] or 0):,.0f} → {total:,.0f}; "
+                  f"{len(old_items)} → {len(parsed_items)} lines", branch_id)
 
-        execute_db("DELETE FROM document_items WHERE document_id=?", (doc_id,))
-        for item in parsed_items:
-            execute_db("""
-                INSERT INTO document_items
-                  (document_id, product_id, description, quantity, unit_price, line_total, discount_pct)
-                VALUES (?,?,?,?,?,?,?)
-            """, (doc_id, item['product_id'], item['description'],
-                  item['quantity'], item['unit_price'], item['line_total'], item['discount_pct']))
-
-        execute_db("""
-            UPDATE documents SET
-              customer_id=?, walkin_name=?, payment_method=?, payment_status=?,
-              credit_due_date=?, notes=?, is_vat=?, vat_rate=?, efd_reference=?,
-              subtotal=?, vat_amount=?, total=?,
-              updated_at=datetime('now','localtime')
-            WHERE id=?
-        """, (customer_id, walkin_name, payment_method, pay_status,
-              credit_due_date, notes, 1 if is_vat else 0, vat_rate_val, efd_reference,
-              subtotal, vat_amount, total, doc_id))
-
-        if doc['doc_type'] == 'invoice':
-            _deduct_stock(parsed_items, doc['branch_id'], doc_id)
-
-        flash(f'{doc["doc_number"]} updated.', 'success')
+        others = [d['doc_number'] for d in batch if d['id'] != doc_id]
+        flash(f'{doc["doc_number"]} updated'
+              + (f' (also {", ".join(others)})' if others else '') + '.', 'success')
         return redirect(url_for('documents.view', doc_id=doc_id))
 
-    return render_template('documents/edit.html',
-                           doc=doc, items=old_items, branches=branches,
-                           vat_rate=VAT_RATE, today=date.today().isoformat())
+    return _form_again()
 
 
 @bp.route('/public/<token>')
@@ -804,18 +824,7 @@ def public_pdf(token):
     if not doc:
         abort(404)
     full_doc = _fetch_doc_full(doc['id'])
-    customer = (query_db("SELECT * FROM customers WHERE id=?",
-                         (full_doc['customer_id'],), one=True)
-                if full_doc['customer_id']
-                else ({'name': full_doc['walkin_name']} if full_doc['walkin_name'] else None))
-    items  = query_db(
-        "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc['id'],))
-    branch = {'name': full_doc['branch_name'], 'address': full_doc['branch_address'],
-              'short_code': full_doc['short_code']}
-    pdf_buf = generate_pdf(dict(full_doc),
-                           dict(customer) if customer else None,
-                           [dict(i) for i in items],
-                           branch, full_doc['staff_name'])
+    pdf_buf = _pdf_for(full_doc)
     return send_file(pdf_buf, mimetype='application/pdf',
                      as_attachment=False,
                      download_name=f"{full_doc['doc_number']}.pdf")
@@ -825,9 +834,7 @@ def public_pdf(token):
 @login_required
 def whatsapp_share(doc_id):
     """Generate a public share token and open WhatsApp with the PDF link."""
-    doc = _fetch_doc_full(doc_id)
-    if not doc:
-        abort(404)
+    doc = _doc_or_404(doc_id)
 
     token = doc['share_token']
     if not token:
@@ -852,7 +859,7 @@ def whatsapp_share(doc_id):
         '+255 768 596 006  |  sadakalawe.com',
     ]
     msg   = '\n'.join(lines)
-    phone = _wa_phone(doc.get('customer_phone', '') or '')
+    phone = _wa_phone(doc['customer_phone'] or '')
     wa    = (f'https://wa.me/{phone}?text={urlquote(msg)}'
              if phone else f'https://wa.me/?text={urlquote(msg)}')
     return redirect(wa)
@@ -866,8 +873,10 @@ def email_document(doc_id):
     back = request.form.get('_next') or url_for('documents.view', doc_id=doc_id)
     try:
         doc = _fetch_doc_full(doc_id)
-        if not doc:
-            abort(404)
+        if not doc or not _can_see(doc):
+            flash('Document not found.', 'danger')
+            return redirect(url_for('documents.list'))
+        doc = dict(doc)
 
         mail_config = get_mail_config()
         if not mail_config.get('MAIL_USERNAME') or not mail_config.get('MAIL_PASSWORD'):
@@ -881,28 +890,17 @@ def email_document(doc_id):
             flash('Please enter an email address.', 'danger')
             return redirect(back)
 
-        customer = (query_db("SELECT * FROM customers WHERE id=?",
-                             (doc['customer_id'],), one=True)
-                    if doc['customer_id']
-                    else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
-        items  = query_db(
-            "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
-        branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
-                  'short_code': doc['short_code']}
-
-        pdf_buf   = generate_pdf(dict(doc),
-                                 dict(customer) if customer else None,
-                                 [dict(i) for i in items],
-                                 branch, doc['staff_name'])
+        pdf_buf   = _pdf_for(doc)
         pdf_bytes = pdf_buf.read()
 
         label         = DOC_TYPE_LABELS.get(doc['doc_type'], doc['doc_type'])
-        customer_name = doc['customer_name'] or 'Valued Customer'
+        customer_name = html.escape(doc['customer_name'] or 'Valued Customer')
         subject       = f"Sadakalawe Enterprises — {label} {doc['doc_number']}"
 
         personal_block = ''
         if message:
-            personal_block = f'<p style="margin:16px 0;color:#594138">{message}</p>'
+            personal_block = ('<p style="margin:16px 0;color:#594138">'
+                              + html.escape(message).replace('\n', '<br>') + '</p>')
 
         body_html = f"""
         <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
@@ -916,7 +914,7 @@ def email_document(doc_id):
             <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:14px 18px;margin:18px 0">
               <p style="margin:0 0 6px 0;color:#594138;font-size:13px">Document Summary</p>
               <p style="margin:0;color:#1b1c1c;font-size:20px;font-weight:bold">
-                TZS {float(doc.get('total', 0)):,.0f}
+                TZS {float(doc.get('total') or 0):,.0f}
               </p>
               <p style="margin:4px 0 0 0;color:#5f5e5e;font-size:12px">
                 {label} &middot; {str(doc.get('created_at', ''))[:10]}
@@ -962,15 +960,8 @@ def email_document(doc_id):
 @login_required
 @perm_required('create_documents')
 def convert(doc_id):
-    """Convert a proforma → invoice, or invoice → delivery note."""
-    source = query_db("""
-        SELECT d.*, b.short_code AS branch_code
-        FROM documents d JOIN branches b ON d.branch_id = b.id
-        WHERE d.id=?
-    """, (doc_id,), one=True)
-    if not source:
-        abort(404)
-
+    """Proforma → invoice, or invoice → delivery note — once per sale."""
+    source = _doc_or_404(doc_id)
     src_type = source['doc_type']
     if src_type == 'proforma':
         target_type = 'invoice'
@@ -980,58 +971,75 @@ def convert(doc_id):
         flash('Only proformas and invoices can be converted.', 'danger')
         return redirect(url_for('documents.view', doc_id=doc_id))
 
-    items = query_db(
-        "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
+    batch = _batch_docs(source)
+    existing = next((d for d in batch if d['doc_type'] == target_type), None)
+    if existing:
+        flash(f'This sale already has {DOC_TYPE_LABELS[target_type]} {existing["doc_number"]} '
+              f'— no second one created.', 'info')
+        return redirect(url_for('documents.view', doc_id=existing['id']))
 
-    doc_number = get_next_number(source['branch_id'], target_type, date.today().year)
+    items = [dict(r) for r in query_db(
+        "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))]
+    branch_id = source['branch_id']
 
-    # Payment details only relevant for proforma → invoice
     if target_type == 'invoice':
-        pay_method     = request.form.get('payment_method', 'cash')
-        pay_status     = 'credit' if pay_method == 'credit' else 'paid'
-        credit_due     = request.form.get('credit_due_date', '').strip() or None
-        amount_paid    = 0.0 if pay_status == 'credit' else float(source['total'])
-        actual_method  = request.form.get('credit_method', 'cash') if pay_status == 'credit' else pay_method
-        notes          = request.form.get('notes', source['notes'] or '').strip() or None
+        errors = []
+        problem = _customer_problem(source['customer_id'])
+        if problem:
+            errors.append(problem + ' (Edit the proforma to pick the customer.)')
+        errors += stock.check_sale(items, branch_id)
+        if any(it['product_id'] and stock.is_tracked(it['product_id']) for it in items):
+            errors.append('This quote has items with IMEI numbers. Create the sale from '
+                          '"New Document" so you can pick the exact devices.')
+        if errors:
+            for e in errors:
+                flash(e, 'danger')
+            return redirect(url_for('documents.view', doc_id=doc_id))
+
+        pay_method    = request.form.get('payment_method', 'cash')
+        pay_status    = 'credit' if pay_method == 'credit' else 'paid'
+        credit_due    = request.form.get('credit_due_date', '').strip() or None
+        amount_paid   = 0.0 if pay_status == 'credit' else float(source['total'])
+        actual_method = 'credit' if pay_status == 'credit' else pay_method
     else:
-        pay_method    = source['payment_method']
         pay_status    = source['payment_status']
         credit_due    = source['credit_due_date']
         amount_paid   = source['amount_paid']
-        actual_method = pay_method
-        notes         = request.form.get('notes', source['notes'] or '').strip() or None
+        actual_method = source['payment_method']
+    notes = request.form.get('notes', source['notes'] or '').strip() or None
 
-    new_id = execute_db("""
-        INSERT INTO documents
-          (doc_number, doc_type, branch_id, customer_id, created_by,
-           is_vat, vat_rate, efd_reference, subtotal, vat_amount, total,
-           notes, validity_days, status, payment_status, payment_method,
-           amount_paid, credit_due_date, walkin_name, batch_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    """, (
-        doc_number, target_type, source['branch_id'], source['customer_id'],
-        current_user.id,
-        source['is_vat'], source['vat_rate'], None,
-        source['subtotal'], source['vat_amount'], source['total'],
-        notes, source['validity_days'], 'final',
-        pay_status, actual_method, amount_paid, credit_due,
-        source['walkin_name'], source['batch_id'],
-    ))
+    with transaction():
+        batch_id = source['batch_id']
+        if not batch_id:
+            batch_id = source['doc_number']
+            execute_db("UPDATE documents SET batch_id=? WHERE id=?", (batch_id, doc_id))
+        doc_number = get_next_number(branch_id, target_type, date.today().year)
+        new_id = execute_db("""
+            INSERT INTO documents
+              (doc_number, doc_type, branch_id, customer_id, created_by,
+               is_vat, vat_rate, efd_reference, subtotal, vat_amount, total,
+               notes, validity_days, status, payment_status, payment_method,
+               amount_paid, credit_due_date, walkin_name, batch_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            doc_number, target_type, branch_id, source['customer_id'], current_user.id,
+            source['is_vat'], source['vat_rate'], None,
+            source['subtotal'], source['vat_amount'], source['total'],
+            notes, source['validity_days'], 'final',
+            pay_status, actual_method, amount_paid, credit_due,
+            source['walkin_name'], batch_id,
+        ))
+        for item in items:
+            execute_db("""
+                INSERT INTO document_items
+                  (document_id, product_id, description, quantity, unit_price, discount_pct, line_total)
+                VALUES (?,?,?,?,?,?,?)
+            """, (new_id, item['product_id'], item['description'], item['quantity'],
+                  item['unit_price'], item.get('discount_pct') or 0, item['line_total']))
+        if target_type == 'invoice':
+            stock.sell(items, branch_id, new_id)
+        audit('convert', 'document', new_id, doc_number,
+              f"from {source['doc_number']}", branch_id)
 
-    for item in items:
-        execute_db("""
-            INSERT INTO document_items
-              (document_id, product_id, description, quantity, unit_price, discount_pct, line_total)
-            VALUES (?,?,?,?,?,?,?)
-        """, (new_id, item['product_id'], item['description'],
-               item['quantity'], item['unit_price'],
-               item['discount_pct'] if 'discount_pct' in item.keys() else 0,
-               item['line_total']))
-
-    # Deduct stock when converting proforma → invoice
-    if target_type == 'invoice':
-        _deduct_stock(items, source['branch_id'], new_id)
-
-    type_labels = {'invoice': 'Invoice', 'delivery_note': 'Delivery Note'}
-    flash(f'Converted to {type_labels[target_type]}: {doc_number}', 'success')
+    flash(f'Converted to {DOC_TYPE_LABELS[target_type]}: {doc_number}', 'success')
     return redirect(url_for('documents.view', doc_id=new_id))

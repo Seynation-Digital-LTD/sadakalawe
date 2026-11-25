@@ -31,54 +31,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-5">
-        <label class="field-label">Payment</label>
-        <!-- Timing toggle: Pay Now vs Credit -->
-        <div class="payment-type-toggle">
-          <label class="payment-opt payment-opt--cash active" id="opt-paynow">
-            <input type="radio" name="_timing" value="now" checked>
-            <i class="bi bi-check-circle"></i> Pay Now
-          </label>
-          <label class="payment-opt payment-opt--credit" id="opt-credit">
-            <input type="radio" name="_timing" value="credit">
-            <i class="bi bi-clock-history"></i> Credit / Pay Later
-          </label>
-        </div>
-        <!-- Hidden field carries the final value submitted -->
-        <input type="hidden" name="payment_type" id="payment_type" value="cash">
-
-        <!-- Method grid (shown when Pay Now) -->
-        <div class="pay-method-wrap" id="method-wrap">
-          <div class="pay-method-label">How was payment made?</div>
-          <div class="pay-method-grid">
-            {% set methods = [
-              ('cash',          'bi-cash-coin',       'Cash'),
-              ('card',          'bi-credit-card',     'Card / POS'),
-              ('mpesa',         'bi-phone',           'M-Pesa'),
-              ('airtel_money',  'bi-phone',           'Airtel Money'),
-              ('mixx_by_yas',   'bi-phone',           'Mixx by Yas'),
-              ('halopesa',      'bi-phone',           'Halopesa'),
-              ('bank_transfer', 'bi-bank',            'Bank Transfer'),
-              ('other',         'bi-three-dots',      'Other'),
-            ] %}
-            {% for val, icon, label in methods %}
-            <label class="pay-method-opt {% if val == 'cash' %}active{% endif %}"
-                   data-method="{{ val }}">
-              <input type="radio" name="_method" value="{{ val }}"
-                     {% if val == 'cash' %}checked{% endif %}>
-              <i class="bi {{ icon }} method-icon"></i>
-              {{ label }}
-            </label>
-            {% endfor %}
-          </div>
-        </div>
-      </div>
-      <div class="col-md-3" id="due-date-section" style="display:none">
-        <label class="field-label">Due Date</label>
-        <input type="date" name="credit_due_date" id="credit_due_date"
-               class="form-control" min="{{ today }}">
-        <p class="field-hint">When must credit be repaid?</p>
-      </div>
+{% include 'documents/_payment.html' %}
       <div class="col-md-2" id="vat-section">
         <label class="field-label">VAT</label>
         <div class="toggle-wrap">
@@ -101,20 +54,23 @@
           Customer Name
           <span style="color:#ef4444;font-size:11px;font-weight:600;margin-left:6px">Required</span>
         </label>
-        <input type="hidden" name="customer_id" id="customer_id">
+        <input type="hidden" name="customer_id" id="customer_id"
+               value="{{ prefill_customer.id if prefill_customer else '' }}">
         <div class="position-relative">
           <input type="text" name="walkin_name" id="walkin_name" class="form-control"
-                 placeholder="Enter customer name — or search existing contacts…" autocomplete="off">
+                 value="{{ prefill_customer.name if prefill_customer else '' }}"
+                 placeholder="Search customer by name or phone…" autocomplete="off">
           <div id="customer-dropdown" class="ac-dropdown" style="display:none"></div>
         </div>
-        <p class="field-hint">Always enter a name — even for walk-ins. It helps you find this sale later.</p>
+        <p class="field-hint">Pick the customer from the list. New customer? Press <b>Save</b> and enter their real full name and phone.</p>
         <div id="name-warning" style="display:none;color:#ef4444;font-size:12px;font-weight:600;margin-top:4px">
-          <i class="bi bi-exclamation-triangle-fill me-1"></i> Please enter the customer's name before generating
+          <i class="bi bi-exclamation-triangle-fill me-1"></i> Choose the customer from the list, or save them as a new customer first
         </div>
       </div>
       <div class="col-md-3">
         <label class="field-label">Phone <span style="font-weight:400;color:var(--c-muted)">(auto)</span></label>
         <input type="text" id="customer-phone-display" class="form-control"
+               value="{{ prefill_customer.phone if prefill_customer and prefill_customer.phone else '' }}"
                placeholder="Auto-filled from contact" readonly
                style="background:var(--c-surface-low);cursor:default">
       </div>
@@ -146,12 +102,13 @@
           <div class="mb-3">
             <label class="field-label">Full Name <span class="text-danger">*</span></label>
             <input type="text" id="qc-name" class="form-control"
-                   placeholder="Customer or business name">
+                   placeholder="First and last name, e.g. Neema Mollel">
+            <div class="field-hint">Real name, not "mteja", "boss" or a nickname. Business: full company name.</div>
           </div>
           <div class="row g-2">
             <div class="col-md-6">
-              <label class="field-label">Phone</label>
-              <input type="text" id="qc-phone" class="form-control" placeholder="+255 …">
+              <label class="field-label">Phone <span class="text-danger">*</span></label>
+              <input type="tel" id="qc-phone" class="form-control" placeholder="0768 596 006">
             </div>
             <div class="col-md-6">
               <label class="field-label">TIN (businesses)</label>
@@ -225,7 +182,7 @@
         <div class="mt-2">
           <label class="field-label">Notes / Memo</label>
           <textarea name="notes" class="form-control" rows="3"
-                    placeholder="Any additional notes…"></textarea>
+                    placeholder="Any additional notes…">{{ form.get('notes', '') if form else '' }}</textarea>
         </div>
         <div id="efd-section" style="display:none" class="mt-3">
           <label class="field-label">EFD Reference Number</label>
@@ -275,55 +232,13 @@ const PRODUCT_SEARCH_URL  = "{{ url_for('products.search') }}";
 const CUSTOMER_QUICK_ADD  = "{{ url_for('customers.quick_add') }}";
 const UNITS_API_URL       = "{{ url_for('stock.api_units') }}";
 const TODAY               = "{{ today if today else '' }}";
+{% if prefill_items %}
+// Kept from the last attempt so nothing has to be typed again after an error
+const PREFILL_DATA = {{ prefill_items | tojson }};
+{% endif %}
 
-// ── Payment method / timing wiring ──────────────────────────
-(function () {
-  const timingOpts  = document.querySelectorAll('.payment-opt');
-  const methodOpts  = document.querySelectorAll('.pay-method-opt');
-  const methodWrap  = document.getElementById('method-wrap');
-  const dueSec      = document.getElementById('due-date-section');
-  const payTypeHid  = document.getElementById('payment_type');
-
-  function syncPaymentType() {
-    const timing = document.querySelector('input[name="_timing"]:checked')?.value;
-    const method = document.querySelector('input[name="_method"]:checked')?.value || 'cash';
-    if (timing === 'credit') {
-      payTypeHid.value = 'credit';
-    } else {
-      payTypeHid.value = method;
-    }
-  }
-
-  // Timing toggle
-  timingOpts.forEach(opt => {
-    opt.addEventListener('click', () => {
-      timingOpts.forEach(o => o.classList.remove('active'));
-      opt.classList.add('active');
-      const val = opt.querySelector('input').value;
-      if (val === 'credit') {
-        methodWrap.style.display = 'none';
-        dueSec.style.display     = '';
-      } else {
-        methodWrap.style.display = '';
-        dueSec.style.display     = 'none';
-      }
-      syncPaymentType();
-    });
-  });
-
-  // Method grid
-  methodOpts.forEach(opt => {
-    opt.addEventListener('click', () => {
-      methodOpts.forEach(o => o.classList.remove('active'));
-      opt.classList.add('active');
-      opt.querySelector('input').checked = true;
-      syncPaymentType();
-    });
-  });
-
-  syncPaymentType();
-})();
 </script>
+<script src="{{ url_for('static', filename='js/payment.js') }}"></script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 <script>
 (function () {
@@ -345,6 +260,9 @@ const TODAY               = "{{ today if today else '' }}";
   saveBtn.addEventListener('click', async () => {
     const name = document.getElementById('qc-name').value.trim();
     if (!name) { errBox.textContent = 'Name is required.'; errBox.style.display = ''; return; }
+    if (!document.getElementById('qc-phone').value.trim()) {
+      errBox.textContent = 'Phone number is required.'; errBox.style.display = ''; return;
+    }
     errBox.style.display = 'none';
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving…';
@@ -370,7 +288,9 @@ const TODAY               = "{{ today if today else '' }}";
       if (ph && data.phone) ph.value = data.phone;
 
       bootstrap.Modal.getInstance(modal).hide();
-      successMsg.textContent = `"${data.name}" saved to contacts and linked to this document.`;
+      successMsg.textContent = data.existing
+        ? `This phone already belongs to "${data.name}" — linked that customer to this sale.`
+        : `"${data.name}" saved to contacts and linked to this document.`;
       successEl.style.display = '';
       setTimeout(() => { successEl.style.display = 'none'; }, 4000);
     } catch (e) {
@@ -396,14 +316,14 @@ const TODAY               = "{{ today if today else '' }}";
   const genLabel= document.getElementById('gen-label');
 
   form.addEventListener('submit', function (e) {
-    // 1. Name check: need either a customer_id OR a typed name
-    const hasName = (custId.value.trim() !== '') || (nameInp.value.trim() !== '');
-    if (!hasName) {
+    // 1. Customer check: the sale must be linked to a saved customer (real name + phone)
+    if (custId.value.trim() === '') {
       e.preventDefault();
       warning.style.display = 'block';
-      nameInp.focus();
       nameInp.style.borderColor = '#ef4444';
       nameInp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Typed a name that isn't saved yet → open "Save as New Contact" with it filled in
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('quick-add-modal')).show();
       return;
     }
     warning.style.display = 'none';
@@ -413,9 +333,14 @@ const TODAY               = "{{ today if today else '' }}";
       e.preventDefault();   // already submitted — block completely
       return;
     }
-    genBtn.disabled = true;
-    genIcon.className = 'spinner-border spinner-border-sm me-1';
-    genLabel.textContent = 'Generating…';
+    // Lock the button only if no other check (items, IMEIs) stopped the submit,
+    // otherwise it would stay stuck on "Generating…".
+    setTimeout(() => {
+      if (e.defaultPrevented) return;
+      genBtn.disabled = true;
+      genIcon.className = 'spinner-border spinner-border-sm me-1';
+      genLabel.textContent = 'Generating…';
+    }, 0);
   });
 
   // Reset border on name input
@@ -447,7 +372,9 @@ const TODAY               = "{{ today if today else '' }}";
     setStatus('Searching…', null);
 
     try {
-      const res  = await fetch(PRODUCT_SEARCH_URL + '?q=' + encodeURIComponent(q));
+      const br   = document.getElementById('branch_id');
+      const res  = await fetch(PRODUCT_SEARCH_URL + '?q=' + encodeURIComponent(q)
+                               + '&branch_id=' + encodeURIComponent(br ? br.value : ''));
       const data = await res.json();
 
       if (!data.length) {
@@ -463,6 +390,11 @@ const TODAY               = "{{ today if today else '' }}";
         ? `${product.category_name} › ${product.subcategory_name}`
         : (product.category_name || '');
       const desc = catLabel ? `${catLabel} — ${product.model}` : product.model;
+
+      if (Number(product.branch_stock ?? 0) <= 0) {
+        setStatus('Out of stock here: ' + product.model, false);
+        return;
+      }
 
       if (window._addDocRow) {
         window._addDocRow(desc, 1, product.price, '', 0, product.id);

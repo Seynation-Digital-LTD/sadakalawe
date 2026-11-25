@@ -21,7 +21,7 @@
 
       <!-- Invoice link -->
       <div class="card-section mb-4">
-        <h6 class="fw-bold mb-3">Original Invoice <span class="text-muted fw-normal">(recommended)</span></h6>
+        <h6 class="fw-bold mb-3">Original Invoice <span class="text-danger fw-normal">(required)</span></h6>
         <label class="form-label fw-semibold small">Search Invoice</label>
         <div class="input-group mb-2">
           <span class="input-group-text"><i class="bi bi-search"></i></span>
@@ -50,12 +50,12 @@
         </div>
         {% endif %}
         <p class="text-muted mt-2 mb-0" style="font-size:11px">
-          No invoice? Leave blank and fill in details manually below.
+          Search by invoice number, customer name or phone. Goods go back to the branch that sold them.
         </p>
       </div>
 
       <!-- Customer (if no invoice) -->
-      <div class="card-section mb-4" id="walkin-section">
+      <div class="card-section mb-4 d-none" id="walkin-section">
         <h6 class="fw-bold mb-3">Customer Name</h6>
         <input type="text" name="walkin_name" class="form-control form-control-sm"
                id="walkin_name_field"
@@ -227,7 +227,9 @@ async function linkInvoice(inv) {
   const items = await res.json();
   const tbody = document.getElementById('items-body');
   tbody.innerHTML = '';
-  items.forEach(item => addItemRow(item.description, item.quantity, item.unit_price, item.id, item.product_id));
+  items.forEach(item => addItemRow(item.description, item.remaining ?? item.quantity,
+                                   item.unit_price, item.id, item.product_id,
+                                   item.remaining ?? item.quantity, item.sold_imeis || []));
 }
 
 document.getElementById('inv-clear')?.addEventListener('click', () => {
@@ -241,20 +243,33 @@ document.getElementById('inv-clear')?.addEventListener('click', () => {
 
 // ── Item rows ───────────────────────────────────────────────
 let rowIdx = 0;
-function addItemRow(desc='', qty=1, price=0, diId='', prodId='') {
+function addItemRow(desc='', qty=1, price=0, diId='', prodId='', maxQty=null, imeis=[]) {
+  if (!diId) {
+    alert('Link the invoice first — returned items are taken from the invoice lines.');
+    return;
+  }
   const i = rowIdx++;
   const tr = document.createElement('tr');
+  const imeiBox = imeis.length
+    ? `<input type="text" name="item_imeis[]" class="form-control form-control-sm mt-1"
+              style="font-family:monospace;font-size:11px"
+              placeholder="IMEI(s) coming back, comma separated"
+              title="Sold on this invoice: ${esc(imeis.join(', '))}"
+              value="${imeis.length === Number(qty) ? esc(imeis.join(',')) : ''}">
+       <div class="text-muted" style="font-size:10px">Sold: ${esc(imeis.join(', '))}</div>`
+    : `<input type="hidden" name="item_imeis[]" value="">`;
   tr.innerHTML = `
     <td>
       <input type="text" name="item_description[]" class="form-control form-control-sm"
-             value="${esc(desc)}" required>
+             value="${esc(desc)}" readonly style="background:#f9fafb">
       <input type="hidden" name="item_di_id[]"      value="${esc(diId)}">
       <input type="hidden" name="item_product_id[]" value="${esc(prodId || '')}">
+      ${imeiBox}
     </td>
     <td><input type="number" name="item_qty[]" class="form-control form-control-sm text-end item-qty"
-               value="${qty}" min="0.01" step="0.01" required></td>
+               value="${qty}" min="0" ${maxQty !== null ? `max="${maxQty}"` : ''} step="1" required></td>
     <td><input type="number" name="item_price[]" class="form-control form-control-sm text-end item-price"
-               value="${price}" min="0" step="1"></td>
+               value="${price}" min="0" step="any" readonly style="background:#f9fafb"></td>
     <td class="text-end fw-semibold item-total">${fmt(qty * price)}</td>
     <td><button type="button" class="btn btn-xs btn-outline-danger" onclick="this.closest('tr').remove(); updateRefund()">
       <i class="bi bi-trash"></i>
@@ -281,7 +296,7 @@ function updateRefund() {
   if (fld) fld.value = Math.round(total);
 }
 
-document.getElementById('btn-add-item').addEventListener('click', () => addItemRow());
+document.getElementById('btn-add-item').style.display = 'none';  // lines come from the invoice
 
 // ── Outcome toggle ──────────────────────────────────────────
 function toggleOutcome() {
@@ -293,12 +308,10 @@ function toggleOutcome() {
 // ── Pre-fill items if doc was passed server-side ────────────
 {% if doc_items %}
 {% for item in doc_items %}
-addItemRow({{ item.description | tojson }}, {{ item.quantity }},
-           {{ item.unit_price }}, {{ item.id }}, {{ item.product_id or 'null' }});
+addItemRow({{ item.description | tojson }}, {{ item.quantity - item.returned }},
+           {{ item.paid_unit }}, {{ item.id }}, {{ item.product_id or 'null' }},
+           {{ item.quantity - item.returned }}, []);
 {% endfor %}
-{% else %}
-// Start with one blank row if no invoice
-addItemRow();
 {% endif %}
 
 function fmt(n) { return (+n).toLocaleString(); }

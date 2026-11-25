@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% set active = 'activity' %}
+{% block title %}Activity Log{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Activity Log</h2>
+    <p class="page-sub">Who edited, deleted or converted documents, logged returns and removed stock. Last 500 actions.</p>
+  </div>
+</div>
+
+<div class="form-card p-0">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle" style="font-size:13px">
+      <thead>
+        <tr>
+          <th>When</th><th>Who</th><th>Action</th><th>Record</th><th>Details</th><th>Branch</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="text-nowrap">{{ r.created_at | dt }}</td>
+          <td>{{ r.user_name or '—' }}</td>
+          <td>
+            {% set colors = {'delete': 'danger', 'edit': 'warning', 'stock_out': 'warning'} %}
+            <span class="badge text-bg-{{ colors.get(r.action, 'secondary') }}">{{ r.action | replace('_',' ') | title }}</span>
+            <span class="text-muted">{{ r.entity }}</span>
+          </td>
+          <td class="fw-semibold">{{ r.reference or '' }}</td>
+          <td class="text-muted">{{ r.details or '' }}</td>
+          <td>{{ r.branch_name or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">Nothing logged yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

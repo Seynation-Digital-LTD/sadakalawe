@@ -59,8 +59,17 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
+        # Throttle password guessing: the site is on the public internet.
+        recent_failures = query_db(
+            "SELECT COUNT(*) AS n FROM login_failures "
+            "WHERE username=? AND created_at >= datetime('now','localtime','-15 minutes')",
+            (username.lower(),), one=True)['n']
+        if recent_failures >= 8:
+            flash('Too many wrong passwords for this account. Wait 15 minutes and try again.', 'danger')
+            return render_template('login.html')
         user = User.get_by_username(username)
         if user and user.is_active and check_password_hash(user.get_password_hash(), password):
+            execute_db("DELETE FROM login_failures WHERE username=?", (username.lower(),))
             # Single-session: invalidate any previous session by rotating the token
             token = secrets.token_hex(32)
             execute_db("UPDATE users SET session_token=? WHERE id=?", (token, user.id))
@@ -70,8 +79,13 @@ def login():
             if user.must_change_password:
                 flash('Please set a new password before continuing.', 'warning')
                 return redirect(url_for('auth.profile'))
-            next_page = request.args.get('next')
+            next_page = request.args.get('next') or ''
+            # Only follow local paths — never bounce staff to another website.
+            if not next_page.startswith('/') or next_page.startswith('//') or '\\' in next_page:
+                next_page = None
             return redirect(next_page or url_for('reports.dashboard'))
+        execute_db("INSERT INTO login_failures (username, ip) VALUES (?,?)",
+                   (username.lower(), request.headers.get('X-Forwarded-For', request.remote_addr)))
         flash('Invalid username or password.', 'danger')
     return render_template('login.html')
 
