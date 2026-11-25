@@ -55,6 +55,18 @@ DOC_TYPE_LABELS = {
     'delivery_note': 'Delivery Note',
 }
 
+# How a customer can pay — used on New/Edit Document (value, icon, label)
+PAYMENT_METHODS = [
+    ('cash',          'bi-cash-coin',   'Cash'),
+    ('card',          'bi-credit-card', 'Card / POS'),
+    ('mpesa',         'bi-phone',       'M-Pesa'),
+    ('airtel_money',  'bi-phone',       'Airtel Money'),
+    ('mixx_by_yas',   'bi-phone',       'Mixx by Yas'),
+    ('halopesa',      'bi-phone',       'Halopesa'),
+    ('bank_transfer', 'bi-bank',        'Bank Transfer'),
+    ('other',         'bi-three-dots',  'Other'),
+]
+
 BRAND_CATEGORIES = ['MacBook', 'iPhone', 'Anker', 'JBL', 'Accessories', 'Other']
 
 # Customer VIP tiers — ordered highest to lowest
@@ -119,7 +131,8 @@ WHATS_NEW = {
          'the search shows "In stock here". Items typed by hand are no longer accepted.'),
         ('bi-person-vcard', 'Real customer names and phone numbers',
          'Every sale needs a saved customer with first and last name and a phone number. '
-         'Names like "Mteja", "Boss" or "Walk in" are not accepted. New customer? Press Save.'),
+         'Names like "Mteja", "Boss" or "Walk in" are not accepted. New customer? Press Save — '
+         'if the phone is already saved, that customer is used instead of making a duplicate.'),
         ('bi-pencil-square', 'Edits fix all 3 documents',
          'Editing a sale updates the invoice, proforma and delivery note together and corrects the stock.'),
         ('bi-arrow-return-left', 'Returns go through the invoice',
@@ -131,6 +144,9 @@ WHATS_NEW = {
         ('bi-shield-check', 'Give stock permission',
          'Staff who receive or transfer stock need the "Receive stock and adjust quantities" permission '
          '(Users → Edit). Without it they will see "no permission".'),
+        ('bi-intersect', 'Duplicate Check',
+         'New page in the Admin menu: sales entered twice, sales with two invoices, and duplicate '
+         'products you can merge (stock and history move across). Duplicate customers are matched by phone in any format.'),
         ('bi-journal-text', 'Activity Log',
          'New page in the Admin menu: who edited, deleted, converted, returned or removed stock.'),
     ],

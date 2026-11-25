@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% set active = 'duplicates' %}
+{% block title %}Duplicate Check{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Duplicate Check</h2>
+    <p class="page-sub">Records that look entered twice. Check each one before deleting or merging.</p>
+  </div>
+  <a href="{{ url_for('customers.duplicates') }}" class="btn btn-ghost">
+    <i class="bi bi-people"></i> Duplicate customers
+  </a>
+</div>
+
+<!-- Sales -->
+<div class="form-card mb-4">
+  <h5 class="fw-bold mb-1">Sales entered twice <span class="badge text-bg-{{ 'danger' if dup_sales else 'success' }}">{{ dup_sales|length }}</span></h5>
+  <p class="text-muted small mb-3">Same staff, branch, customer and total within 10 minutes. If it really was entered twice,
+    open the extra invoice and delete it — its stock goes back automatically.</p>
+  {% if dup_sales %}
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0" style="font-size:13px">
+      <thead><tr><th>Customer</th><th>Total</th><th>First</th><th>Second</th><th>Items</th><th>Branch / staff</th></tr></thead>
+      <tbody>
+      {% for p in dup_sales %}
+        <tr>
+          <td class="fw-semibold">{{ p.customer_name or '—' }}</td>
+          <td>TZS {{ '{:,.0f}'.format(p.total) }}</td>
+          <td><a href="{{ url_for('documents.view', doc_id=p.a_id) }}">{{ p.a_num }}</a><br><span class="text-muted">{{ p.a_at | dt }}</span></td>
+          <td><a href="{{ url_for('documents.view', doc_id=p.b_id) }}">{{ p.b_num }}</a><br><span class="text-muted">{{ p.b_at | dt }}</span></td>
+          <td>{% if p.same_items %}<span class="badge text-bg-danger">Identical</span>{% else %}<span class="badge text-bg-secondary">Different items</span>{% endif %}</td>
+          <td class="text-muted">{{ p.branch_name }} · {{ p.staff_name }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<div class="text-success small"><i class="bi bi-check-circle-fill"></i> None found.</div>{% endif %}
+</div>
+
+<!-- One sale, two invoices -->
+<div class="form-card mb-4">
+  <h5 class="fw-bold mb-1">One sale with two invoices <span class="badge text-bg-{{ 'danger' if double_invoiced else 'success' }}">{{ double_invoiced|length }}</span></h5>
+  <p class="text-muted small mb-3">Made by the old "convert proforma to invoice" button: the sale was counted (and stock taken) twice.
+    Open the newer invoice and delete it. This can't happen any more.</p>
+  {% if double_invoiced %}
+  <ul class="mb-0 small">
+    {% for b in double_invoiced %}
+    <li><a href="{{ url_for('documents.view_batch', batch_id=b.batch_id) }}">{{ b.numbers }}</a>
+      — counted TZS {{ '{:,.0f}'.format(b.counted) }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<div class="text-success small"><i class="bi bi-check-circle-fill"></i> None found.</div>{% endif %}
+</div>
+
+<!-- Products -->
+<div class="form-card mb-4" id="products">
+  <h5 class="fw-bold mb-1">Duplicate products <span class="badge text-bg-{{ 'danger' if dup_products else 'success' }}">{{ dup_products|length }}</span></h5>
+  <p class="text-muted small mb-3">Same product name (ignoring spaces and capitals). Merging adds the stock together,
+    moves sales history and IMEIs to the product you keep, and switches the duplicate off.</p>
+  {% for g in dup_products %}
+  <form method="POST" action="{{ url_for('products.merge') }}" class="border rounded p-2 mb-2"
+        onsubmit="return confirm('Merge the ticked products into the one marked Keep?')">
+    <table class="table table-sm mb-2 align-middle" style="font-size:13px">
+      <thead><tr><th>Keep</th><th>Merge in</th><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Sold on</th></tr></thead>
+      <tbody>
+      {% for p in g %}
+        <tr>
+          <td><input type="radio" name="keep_id" value="{{ p.id }}" {% if loop.first %}checked{% endif %}></td>
+          <td><input type="checkbox" name="dup_ids[]" value="{{ p.id }}" {% if not loop.first %}checked{% endif %}></td>
+          <td class="fw-semibold"><a href="{{ url_for('products.edit', product_id=p.id) }}">{{ p.model }}</a>{% if p.sku %} <span class="text-muted">({{ p.sku }})</span>{% endif %}</td>
+          <td>{{ p.category_name }}</td>
+          <td>TZS {{ '{:,.0f}'.format(p.price) }}</td>
+          <td>{{ '%g' % p.stock_count }}</td>
+          <td>{{ p.times_sold }} line{{ 's' if p.times_sold != 1 }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <button class="btn btn-sm btn-primary"><i class="bi bi-intersect"></i> Merge</button>
+  </form>
+  {% else %}<div class="text-success small"><i class="bi bi-check-circle-fill"></i> None found.</div>{% endfor %}
+</div>
+{% endblock %}

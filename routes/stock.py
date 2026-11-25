@@ -8,6 +8,7 @@ from flask_login import login_required, current_user
 from database import get_db, execute_db, query_db, transaction, audit
 from routes.auth import perm_required
 from services import stock as stock_svc
+from services.access import own_branch
 from datetime import datetime
 
 bp = Blueprint('stock', __name__, url_prefix='/stock')
@@ -90,16 +91,6 @@ ADJUST_TYPES = {
 }
 
 
-def _own_branch(requested):
-    """Staff only move stock at their own branch."""
-    if not current_user.is_admin and current_user.branch_id:
-        return current_user.branch_id
-    try:
-        return int(requested)
-    except (TypeError, ValueError):
-        return None
-
-
 @bp.route('/adjust', methods=['GET', 'POST'])
 @login_required
 @perm_required('manage_stock')
@@ -118,7 +109,7 @@ def adjust():
     if request.method == 'POST':
         try:
             product_id    = int(request.form['product_id'])
-            branch_id     = _own_branch(request.form.get('branch_id'))
+            branch_id     = own_branch(request.form.get('branch_id'))
             movement_type = request.form['movement_type']
             quantity      = float(request.form['quantity'])
             if movement_type not in ADJUST_TYPES:
@@ -229,8 +220,7 @@ def transfer():
             errors.append('Product not found.')
         if from_branch == to_branch:
             errors.append('Source and destination branches must be different.')
-        if (not current_user.is_admin and current_user.branch_id
-                and from_branch != current_user.branch_id):
+        if from_branch != own_branch(from_branch):
             errors.append('You can only send stock out of your own branch.')
         if quantity <= 0 or quantity != int(quantity):
             errors.append('Quantity must be a whole number above 0.')

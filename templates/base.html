@@ -159,6 +159,10 @@
          class="nav-link {% if active == 'settings' %}active{% endif %}">
         <i class="bi bi-gear"></i> Settings
       </a>
+      <a href="{{ url_for('settings.duplicates') }}"
+         class="nav-link {% if active == 'duplicates' %}active{% endif %}">
+        <i class="bi bi-intersect"></i> Duplicate Check
+      </a>
       <a href="{{ url_for('settings.activity') }}"
          class="nav-link {% if active == 'activity' %}active{% endif %}">
         <i class="bi bi-journal-text"></i> Activity Log

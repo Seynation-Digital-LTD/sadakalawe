@@ -3,6 +3,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from database import query_db, execute_db, get_db, transaction, audit
 from services import stock as stock_svc
+from services.access import can_see_branch, sees_all_branches
 from services.numbering import get_next_number
 
 bp = Blueprint('returns', __name__, url_prefix='/returns')
@@ -21,10 +22,7 @@ RETURN_REASONS = [
 
 def _visible_invoice(doc_id):
     doc = query_db("SELECT * FROM documents WHERE id=? AND doc_type='invoice'", (doc_id,), one=True)
-    if not doc:
-        return None
-    if (not current_user.is_admin and not current_user.can('view_all_branches')
-            and current_user.branch_id and doc['branch_id'] != current_user.branch_id):
+    if not doc or not can_see_branch(doc['branch_id']):
         return None
     return doc
 
@@ -300,8 +298,7 @@ def invoice_search():
         ORDER BY d.created_at DESC
         LIMIT 10
     """, (f'%{q}%', f'%{q}%', f'%{q}%',
-          1 if (current_user.is_admin or current_user.can('view_all_branches')
-                or not current_user.branch_id) else 0,
+          1 if sees_all_branches() else 0,
           current_user.branch_id))
     return jsonify([{
         'id':            r['id'],

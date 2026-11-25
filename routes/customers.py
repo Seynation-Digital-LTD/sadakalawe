@@ -1,12 +1,16 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
-from database import get_db, execute_db, query_db
+from database import get_db, execute_db, query_db, transaction, audit, ONE_PER_SALE
 from routes.auth import perm_required
 from services.text_utils import tc, sc
 from services.customer_rules import (clean_name, name_error, phone_error,
                                      normalize_phone, find_by_phone)
 
 bp = Blueprint('customers', __name__, url_prefix='/customers')
+
+# Every table with a customer_id — all of them move to the kept record on a merge.
+MERGE_TABLES = ('documents', 'financing_plans', 'tradeins', 'returns',
+                'repair_jobs', 'device_sales')
 
 
 @bp.route('/')
@@ -67,10 +71,8 @@ def new():
                 flash(f'Phone {phone} is already registered to "{dup["name"]}". '
                       f'Check existing customer first.', 'danger')
                 return render_template('customers/form.html', branches=branches, action='new')
-        dup_name = query_db("SELECT id FROM customers WHERE LOWER(name)=LOWER(?)", (name,), one=True)
-        if dup_name:
-            flash(f'A customer named "{name}" already exists.', 'danger')
-            return render_template('customers/form.html', branches=branches, action='new')
+        # Same name with a different phone is a different person (two "John Mushi"s
+        # is normal) — the phone number is what makes a customer unique.
 
         branch_id = request.form.get('branch_id') or (current_user.branch_id if not current_user.is_admin else None)
         cid = execute_db("""
@@ -111,10 +113,10 @@ def view(customer_id):
         flash('Customer not found.', 'danger')
         return redirect(url_for('customers.list'))
 
-    docs = query_db("""
+    docs = query_db(f"""
         SELECT d.*, b.name as branch_name
         FROM documents d JOIN branches b ON d.branch_id = b.id
-        WHERE d.customer_id=?
+        WHERE d.customer_id=? AND {ONE_PER_SALE}
         ORDER BY d.created_at DESC LIMIT 20
     """, (customer_id,))
     return render_template('customers/view.html', customer=customer, docs=docs)
@@ -146,12 +148,6 @@ def edit(customer_id):
                 flash(f'Phone {phone} is already registered to "{dup["name"]}".', 'danger')
                 return render_template('customers/form.html', customer=customer,
                                        branches=branches, action='edit')
-        dup_name = query_db("SELECT id FROM customers WHERE LOWER(name)=LOWER(?) AND id!=?",
-                            (name, customer_id), one=True)
-        if dup_name:
-            flash(f'Another customer named "{name}" already exists.', 'danger')
-            return render_template('customers/form.html', customer=customer,
-                                   branches=branches, action='edit')
 
         branch_id = request.form.get('branch_id') or None
         execute_db("""
@@ -226,30 +222,22 @@ def delete(customer_id):
 @perm_required('manage_customers')
 def duplicates():
     """Find customers that share the same normalised phone or exact name."""
-    # Group by normalised phone (strip spaces/dashes/+)
-    by_phone = query_db("""
-        SELECT REPLACE(REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'+',''),'(','') AS norm_phone,
-               COUNT(*) AS cnt
-        FROM customers
-        WHERE phone IS NOT NULL AND phone != ''
-        GROUP BY norm_phone
-        HAVING cnt > 1
-    """)
-    phone_groups = []
-    for row in by_phone:
-        norm = row['norm_phone']
-        members = query_db("""
-            SELECT c.*, COUNT(d.id) AS doc_count
-            FROM customers c
-            LEFT JOIN documents d ON d.customer_id = c.id
-            WHERE REPLACE(REPLACE(REPLACE(REPLACE(c.phone,' ',''),'-',''),'+',''),'(','') = ?
-            GROUP BY c.id ORDER BY c.id
-        """, (norm,))
-        phone_groups.append({'key': norm, 'members': [dict(m) for m in members]})
+    # Group by the same phone number whatever format it was typed in
+    # (0768 596 006 / +255768596006 / 768596006 are one number).
+    groups = {}
+    for c in query_db("""
+        SELECT c.*, COUNT(d.id) AS doc_count
+        FROM customers c LEFT JOIN documents d ON d.customer_id = c.id
+        WHERE TRIM(COALESCE(c.phone,'')) != ''
+        GROUP BY c.id ORDER BY c.id
+    """):
+        key = normalize_phone(c['phone']) or ''.join(ch for ch in c['phone'] if ch.isdigit())
+        groups.setdefault(key, []).append(dict(c))
+    phone_groups = [{'key': k, 'members': v} for k, v in groups.items() if len(v) > 1]
 
     # Group by exact name (case-insensitive)
     by_name = query_db("""
-        SELECT LOWER(name) AS norm_name, COUNT(*) AS cnt
+        SELECT LOWER(TRIM(name)) AS norm_name, COUNT(*) AS cnt
         FROM customers
         GROUP BY norm_name
         HAVING cnt > 1
@@ -260,7 +248,7 @@ def duplicates():
             SELECT c.*, COUNT(d.id) AS doc_count
             FROM customers c
             LEFT JOIN documents d ON d.customer_id = c.id
-            WHERE LOWER(c.name) = ?
+            WHERE LOWER(TRIM(c.name)) = ?
             GROUP BY c.id ORDER BY c.id
         """, (row['norm_name'],))
         name_groups.append({'key': row['norm_name'], 'members': [dict(m) for m in members]})
@@ -286,31 +274,35 @@ def merge():
         flash('Master customer not found.', 'danger')
         return redirect(url_for('customers.duplicates'))
 
-    # Fill in missing fields on master from duplicates
-    for dup_id in dup_ids:
-        dup = query_db("SELECT * FROM customers WHERE id=?", (dup_id,), one=True)
-        if not dup:
-            continue
-        updates = {}
-        if not master['email']   and dup['email']:   updates['email']   = dup['email']
-        if not master['tin']     and dup['tin']:     updates['tin']     = dup['tin']
-        if not master['address'] and dup['address']: updates['address'] = dup['address']
-        if dup['notes']:
-            merged_notes = ((master['notes'] or '') + '\n' + dup['notes']).strip()
-            updates['notes'] = merged_notes
-        if updates:
-            set_clause = ', '.join(f'{k}=?' for k in updates)
-            execute_db(f"UPDATE customers SET {set_clause} WHERE id=?",
-                       list(updates.values()) + [master_id])
-            master = query_db("SELECT * FROM customers WHERE id=?", (master_id,), one=True)
+    dup_ids = [d for d in dup_ids if d != master_id]
+    merged_names = []
+    with transaction():
+        for dup_id in dup_ids:
+            dup = query_db("SELECT * FROM customers WHERE id=?", (dup_id,), one=True)
+            if not dup:
+                continue
+            # Fill in missing fields on master from the duplicate
+            updates = {}
+            for col in ('phone', 'email', 'tin', 'address', 'branch_id'):
+                if not master[col] and dup[col]:
+                    updates[col] = dup[col]
+            if dup['notes']:
+                updates['notes'] = ((master['notes'] or '') + '\n' + dup['notes']).strip()
+            if updates:
+                set_clause = ', '.join(f'{k}=?' for k in updates)
+                execute_db(f"UPDATE customers SET {set_clause} WHERE id=?",
+                           list(updates.values()) + [master_id])
+                master = query_db("SELECT * FROM customers WHERE id=?", (master_id,), one=True)
 
-        # Re-point all records to master
-        execute_db("UPDATE documents       SET customer_id=? WHERE customer_id=?", (master_id, dup_id))
-        execute_db("UPDATE financing_plans SET customer_id=? WHERE customer_id=?", (master_id, dup_id))
-        execute_db("UPDATE tradeins        SET customer_id=? WHERE customer_id=?", (master_id, dup_id))
-        execute_db("DELETE FROM customers WHERE id=?", (dup_id,))
+            # Re-point every record that belongs to the duplicate, then remove it
+            for table in MERGE_TABLES:
+                execute_db(f"UPDATE {table} SET customer_id=? WHERE customer_id=?", (master_id, dup_id))
+            execute_db("DELETE FROM customers WHERE id=?", (dup_id,))
+            merged_names.append(dup['name'])
+        audit('merge', 'customer', master_id, master['name'],
+              'merged in: ' + ', '.join(merged_names))
 
-    merged_count = len(dup_ids)
+    merged_count = len(merged_names)
     flash(f'Merged {merged_count} duplicate(s) into "{master["name"]}".', 'success')
     return redirect(url_for('customers.view', customer_id=master_id))
 

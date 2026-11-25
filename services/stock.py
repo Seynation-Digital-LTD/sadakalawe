@@ -116,19 +116,33 @@ def doc_sold_qty(doc_ids):
     return {r['product_id']: float(r['q']) for r in rows if r['q']}
 
 
-def reverse_sales(doc_ids, branch_id):
+def put_back(product_id, branch_id, qty):
+    """Add to stock WITHOUT a movement row — only for undoing a sale whose own
+    movement is being removed (or never existed on very old invoices)."""
+    execute_db("""
+        INSERT INTO product_stock (product_id, branch_id, quantity) VALUES (?,?,?)
+        ON CONFLICT(product_id, branch_id) DO UPDATE SET quantity = quantity + excluded.quantity
+    """, (product_id, branch_id, qty))
+    _sync_total(product_id)
+
+
+def reverse_sales(doc_ids, branch_id, release_units=True):
     """Put back on the shelf whatever these documents took out, and drop their
-    sale movements (the document no longer sells it). Also releases IMEI units."""
+    sale movements (the document no longer sells it). Optionally releases IMEI units."""
     for pid, qty in doc_sold_qty(doc_ids).items():
-        execute_db("""
-            INSERT INTO product_stock (product_id, branch_id, quantity) VALUES (?,?,?)
-            ON CONFLICT(product_id, branch_id) DO UPDATE SET quantity = quantity + excluded.quantity
-        """, (pid, branch_id, qty))
-        _sync_total(pid)
+        put_back(pid, branch_id, qty)
     if doc_ids:
         ph = ','.join('?' * len(doc_ids))
         execute_db(f"DELETE FROM stock_movements WHERE movement_type='sale' "
                    f"AND reference_doc_id IN ({ph})", list(doc_ids))
+    if doc_ids and release_units:
+        release_units_of(doc_ids)
+
+
+def release_units_of(doc_ids):
+    """IMEI units sold on these documents go back in stock."""
+    if doc_ids:
+        ph = ','.join('?' * len(doc_ids))
         execute_db(f"""
             UPDATE device_imeis SET status='in_stock', sold_document_id=NULL, sold_at=NULL
              WHERE sold_document_id IN ({ph})

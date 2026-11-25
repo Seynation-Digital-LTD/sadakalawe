@@ -1086,6 +1086,12 @@ def _seed_categories(db):
         """, (cat_id, brand))
 
 
+# Filter for "one row per sale": the invoice stands for its proforma and delivery
+# note. Documents that never became an invoice (or have no batch) still show.
+ONE_PER_SALE = """(d.doc_type = 'invoice' OR d.batch_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM documents x WHERE x.batch_id = d.batch_id AND x.doc_type = 'invoice'))"""
+
+
 def query_db(query, args=(), one=False):
     cur = get_db().execute(query, args)
     rv = cur.fetchall()

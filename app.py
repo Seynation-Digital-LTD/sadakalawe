@@ -117,6 +117,8 @@ def create_app():
         return _VIP_TIERS[-1]
     app.jinja_env.globals['get_tier'] = _get_tier
     app.jinja_env.globals['VIP_TIERS'] = _VIP_TIERS
+    from config import PAYMENT_METHODS as _PM
+    app.jinja_env.globals['PAYMENT_METHODS'] = _PM
 
     from datetime import date as _date, timedelta as _td
     def _date_label(date_str):

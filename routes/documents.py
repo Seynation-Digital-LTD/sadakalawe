@@ -8,6 +8,7 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
 from flask_login import login_required, current_user
 from database import execute_db, query_db, transaction, audit
 from services import stock
+from services.access import can_see_branch, own_branch, sees_all_branches
 from services.customer_rules import name_error
 from services.numbering import get_next_number
 from services.pdf_generator import generate_pdf
@@ -76,6 +77,18 @@ def _fetch_doc_full(doc_id):
         JOIN users u ON d.created_by = u.id
         WHERE d.id=?
     """, (doc_id,), one=True)
+
+
+def _pdf_for(doc):
+    """Branded PDF for a document row from _fetch_doc_full (one place, used everywhere)."""
+    customer = (query_db("SELECT * FROM customers WHERE id=?", (doc['customer_id'],), one=True)
+                if doc['customer_id']
+                else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
+    items = query_db("SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc['id'],))
+    branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
+              'short_code': doc['short_code']}
+    return generate_pdf(dict(doc), dict(customer) if customer else None,
+                        [dict(i) for i in items], branch, doc['staff_name'])
 
 
 def _parse_items(form):
@@ -175,10 +188,7 @@ def _register_units(items, doc_id, customer_id):
 
 
 def _can_see(doc):
-    """Staff see their own branch's documents unless allowed to see all branches."""
-    if current_user.is_admin or current_user.can('view_all_branches'):
-        return True
-    return not current_user.branch_id or doc['branch_id'] == current_user.branch_id
+    return can_see_branch(doc['branch_id'])
 
 
 def _doc_or_404(doc_id):
@@ -186,16 +196,6 @@ def _doc_or_404(doc_id):
     if not doc or not _can_see(doc):
         abort(404)
     return doc
-
-
-def _sale_branch(requested):
-    """Staff always sell from their own branch; admins pick."""
-    if not current_user.is_admin and current_user.branch_id:
-        return current_user.branch_id
-    try:
-        return int(requested)
-    except (TypeError, ValueError):
-        return None
 
 
 def _batch_docs(doc):
@@ -225,15 +225,7 @@ def _reverse_stock(batch, branch_id, release_units=True):
     ids  = [d['id'] for d in batch]
     held = stock.doc_sold_qty(ids)
     if held:
-        if release_units:
-            stock.reverse_sales(ids, branch_id)
-        else:
-            # Quantities only; IMEI units stay sold on this sale.
-            for pid, qty in held.items():
-                stock.move(pid, branch_id, qty, 'sale_reversal', ref_doc_id=ids[0])
-            ph = ','.join('?' * len(ids))
-            execute_db(f"DELETE FROM stock_movements WHERE movement_type IN ('sale','sale_reversal') "
-                       f"AND reference_doc_id IN ({ph})", ids)
+        stock.reverse_sales(ids, branch_id, release_units=release_units)
         return held
     # Older invoices may have deducted stock without logging a movement.
     inv = next((d for d in batch if d['doc_type'] == 'invoice'), None)
@@ -242,13 +234,9 @@ def _reverse_stock(batch, branch_id, release_units=True):
                         "WHERE document_id=? AND product_id IS NOT NULL", (inv['id'],))
         held = stock.qty_by_product([dict(r) for r in rows])
         for pid, qty in held.items():
-            execute_db("""
-                INSERT INTO product_stock (product_id, branch_id, quantity) VALUES (?,?,?)
-                ON CONFLICT(product_id, branch_id) DO UPDATE SET quantity = quantity + excluded.quantity
-            """, (pid, branch_id, qty))
-            stock._sync_total(pid)
+            stock.put_back(pid, branch_id, qty)
     if release_units:
-        stock.reverse_sales(ids, branch_id)
+        stock.release_units_of(ids)
     return held
 
 
@@ -318,8 +306,7 @@ def list():
     """
     args = []
 
-    if (not current_user.is_admin and not current_user.can('view_all_branches')
-            and current_user.branch_id):
+    if not sees_all_branches():
         sql += " AND d.branch_id=?"
         args.append(current_user.branch_id)
     elif branch_filter:
@@ -403,7 +390,7 @@ def new():
             return redirect(url_for('documents.new'))
         # ───────────────────────────────────────────────────────────────
 
-        branch_id       = _sale_branch(request.form.get('branch_id'))
+        branch_id       = own_branch(request.form.get('branch_id'))
         customer_id     = request.form.get('customer_id', type=int)
         is_vat          = 1 if request.form.get('is_vat') else 0
         notes           = sc(request.form.get('notes', '')) or None
@@ -536,18 +523,7 @@ def download_zip():
             doc = _fetch_doc_full(doc_id)
             if not doc or not _can_see(doc):
                 continue
-            customer = (query_db("SELECT * FROM customers WHERE id=?",
-                                 (doc['customer_id'],), one=True)
-                        if doc['customer_id']
-                        else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
-            items  = query_db(
-                "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
-            branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
-                      'short_code': doc['short_code']}
-            pdf_buf = generate_pdf(dict(doc),
-                                   dict(customer) if customer else None,
-                                   [dict(i) for i in items],
-                                   branch, doc['staff_name'])
+            pdf_buf = _pdf_for(doc)
             zf.writestr(f"{doc['doc_number']}.pdf", pdf_buf.read())
 
     buffer.seek(0)
@@ -578,18 +554,7 @@ def download_merged():
         doc = _fetch_doc_full(doc_id)
         if not doc or not _can_see(doc):
             continue
-        customer = (query_db("SELECT * FROM customers WHERE id=?",
-                             (doc['customer_id'],), one=True)
-                    if doc['customer_id']
-                    else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
-        items  = query_db(
-            "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
-        branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
-                  'short_code': doc['short_code']}
-        pdf_buf = generate_pdf(dict(doc),
-                               dict(customer) if customer else None,
-                               [dict(i) for i in items],
-                               branch, doc['staff_name'])
+        pdf_buf = _pdf_for(doc)
         reader = PdfReader(pdf_buf)
         for page in reader.pages:
             writer.add_page(page)
@@ -662,18 +627,7 @@ def view(doc_id):
 @perm_required('download_documents')
 def download_pdf(doc_id):
     doc = _doc_or_404(doc_id)
-    customer = (query_db("SELECT * FROM customers WHERE id=?",
-                         (doc['customer_id'],), one=True)
-                if doc['customer_id']
-                else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
-    items  = query_db(
-        "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
-    branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
-              'short_code': doc['short_code']}
-    pdf_buf = generate_pdf(dict(doc),
-                           dict(customer) if customer else None,
-                           [dict(i) for i in items],
-                           branch, doc['staff_name'])
+    pdf_buf = _pdf_for(doc)
     return send_file(pdf_buf, mimetype='application/pdf',
                      as_attachment=False,
                      download_name=f"{doc['doc_number']}.pdf")
@@ -870,18 +824,7 @@ def public_pdf(token):
     if not doc:
         abort(404)
     full_doc = _fetch_doc_full(doc['id'])
-    customer = (query_db("SELECT * FROM customers WHERE id=?",
-                         (full_doc['customer_id'],), one=True)
-                if full_doc['customer_id']
-                else ({'name': full_doc['walkin_name']} if full_doc['walkin_name'] else None))
-    items  = query_db(
-        "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc['id'],))
-    branch = {'name': full_doc['branch_name'], 'address': full_doc['branch_address'],
-              'short_code': full_doc['short_code']}
-    pdf_buf = generate_pdf(dict(full_doc),
-                           dict(customer) if customer else None,
-                           [dict(i) for i in items],
-                           branch, full_doc['staff_name'])
+    pdf_buf = _pdf_for(full_doc)
     return send_file(pdf_buf, mimetype='application/pdf',
                      as_attachment=False,
                      download_name=f"{full_doc['doc_number']}.pdf")
@@ -947,19 +890,7 @@ def email_document(doc_id):
             flash('Please enter an email address.', 'danger')
             return redirect(back)
 
-        customer = (query_db("SELECT * FROM customers WHERE id=?",
-                             (doc['customer_id'],), one=True)
-                    if doc['customer_id']
-                    else ({'name': doc['walkin_name']} if doc['walkin_name'] else None))
-        items  = query_db(
-            "SELECT * FROM document_items WHERE document_id=? ORDER BY id", (doc_id,))
-        branch = {'name': doc['branch_name'], 'address': doc['branch_address'],
-                  'short_code': doc['short_code']}
-
-        pdf_buf   = generate_pdf(dict(doc),
-                                 dict(customer) if customer else None,
-                                 [dict(i) for i in items],
-                                 branch, doc['staff_name'])
+        pdf_buf   = _pdf_for(doc)
         pdf_bytes = pdf_buf.read()
 
         label         = DOC_TYPE_LABELS.get(doc['doc_type'], doc['doc_type'])

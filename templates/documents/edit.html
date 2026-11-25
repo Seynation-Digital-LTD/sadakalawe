@@ -34,52 +34,7 @@
                style="background:var(--c-surface-low);cursor:default">
         <input type="hidden" name="branch_id" id="branch_id" value="{{ doc.branch_id }}">
       </div>
-      <div class="col-md-5">
-        <label class="field-label">Payment</label>
-        <div class="payment-type-toggle">
-          <label class="payment-opt payment-opt--cash {% if doc.payment_status != 'credit' %}active{% endif %}" id="opt-paynow">
-            <input type="radio" name="_timing" value="now" {% if doc.payment_status != 'credit' %}checked{% endif %}>
-            <i class="bi bi-check-circle"></i> Pay Now
-          </label>
-          <label class="payment-opt payment-opt--credit {% if doc.payment_status == 'credit' %}active{% endif %}" id="opt-credit">
-            <input type="radio" name="_timing" value="credit" {% if doc.payment_status == 'credit' %}checked{% endif %}>
-            <i class="bi bi-clock-history"></i> Credit / Pay Later
-          </label>
-        </div>
-        <input type="hidden" name="payment_type" id="payment_type"
-               value="{{ 'credit' if doc.payment_status == 'credit' else (doc.payment_method or 'cash') }}">
-
-        <div class="pay-method-wrap" id="method-wrap"
-             {% if doc.payment_status == 'credit' %}style="display:none"{% endif %}>
-          <div class="pay-method-label">How was payment made?</div>
-          <div class="pay-method-grid">
-            {% set cur_method = doc.payment_method or 'cash' %}
-            {% for val, icon, label in [
-              ('cash',          'bi-cash-coin',   'Cash'),
-              ('card',          'bi-credit-card', 'Card / POS'),
-              ('mpesa',         'bi-phone',       'M-Pesa'),
-              ('airtel_money',  'bi-phone',       'Airtel Money'),
-              ('mixx_by_yas',   'bi-phone',       'Mixx by Yas'),
-              ('halopesa',      'bi-phone',       'Halopesa'),
-              ('bank_transfer', 'bi-bank',        'Bank Transfer'),
-              ('other',         'bi-three-dots',  'Other'),
-            ] %}
-            <label class="pay-method-opt {% if val == cur_method %}active{% endif %}"
-                   data-method="{{ val }}">
-              <input type="radio" name="_method" value="{{ val }}"
-                     {% if val == cur_method %}checked{% endif %}>
-              <i class="bi {{ icon }} method-icon"></i>{{ label }}
-            </label>
-            {% endfor %}
-          </div>
-        </div>
-      </div>
-      <div class="col-md-3" id="due-date-section"
-           {% if doc.payment_status != 'credit' %}style="display:none"{% endif %}>
-        <label class="field-label">Due Date</label>
-        <input type="date" name="credit_due_date" id="credit_due_date"
-               class="form-control" value="{{ doc.credit_due_date or '' }}">
-      </div>
+{% include 'documents/_payment.html' %}
       <div class="col-md-2" id="vat-section">
         <label class="field-label">VAT</label>
         <div class="toggle-wrap">
@@ -214,42 +169,7 @@ const PREFILL_DATA = [
   {% endfor %}
 ];
 
-// Payment method / timing wiring
-(function () {
-  const timingOpts = document.querySelectorAll('.payment-opt');
-  const methodOpts = document.querySelectorAll('.pay-method-opt');
-  const methodWrap = document.getElementById('method-wrap');
-  const dueSec     = document.getElementById('due-date-section');
-  const payTypeHid = document.getElementById('payment_type');
-
-  function syncPaymentType() {
-    const timing = document.querySelector('input[name="_timing"]:checked')?.value;
-    const method = document.querySelector('input[name="_method"]:checked')?.value || 'cash';
-    payTypeHid.value = timing === 'credit' ? 'credit' : method;
-  }
-
-  timingOpts.forEach(opt => {
-    opt.addEventListener('click', () => {
-      timingOpts.forEach(o => o.classList.remove('active'));
-      opt.classList.add('active');
-      const val = opt.querySelector('input').value;
-      methodWrap.style.display = val === 'credit' ? 'none' : '';
-      dueSec.style.display     = val === 'credit' ? '' : 'none';
-      syncPaymentType();
-    });
-  });
-
-  methodOpts.forEach(opt => {
-    opt.addEventListener('click', () => {
-      methodOpts.forEach(o => o.classList.remove('active'));
-      opt.classList.add('active');
-      opt.querySelector('input').checked = true;
-      syncPaymentType();
-    });
-  });
-
-  syncPaymentType();
-})();
 </script>
+<script src="{{ url_for('static', filename='js/payment.js') }}"></script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 {% endblock %}

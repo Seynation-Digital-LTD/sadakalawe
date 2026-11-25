@@ -343,6 +343,57 @@ class WhatsNew(Base):
         self.assertNotIn('whats-new-modal', self.c.get('/documents/').get_data(as_text=True))
 
 
+class Duplicates(Base):
+    def setUp(self):
+        super().setUp()
+        self.login()
+
+    def test_same_phone_any_format_is_one_customer_group_and_merge_moves_everything(self):
+        with db() as c:
+            a = c.execute("INSERT INTO customers (name, phone) VALUES ('Peter Kessy', '0766 101 202')").lastrowid
+            b = c.execute("INSERT INTO customers (name, phone) VALUES ('Peter Kesi', '+255766101202')").lastrowid
+            c.execute("INSERT INTO repair_jobs (job_number, branch_id, customer_id, device_make, device_model, problem) "
+                      "VALUES ('REP-T-1', 1, ?, 'Apple', 'iPhone', 'screen')", (b,))
+        page = self.c.get('/customers/duplicates').get_data(as_text=True)
+        self.assertIn('Peter Kesi', page)
+        r = self.c.post('/customers/merge', data={'master_id': a, 'dup_ids[]': [b]}, follow_redirects=True)
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(q1("SELECT id FROM customers WHERE id=?", (b,)))
+        self.assertEqual(q1("SELECT customer_id FROM repair_jobs WHERE job_number='REP-T-1'")[0], a)
+
+    def test_same_name_different_phone_allowed(self):
+        self.c.post('/customers/new', data={'name': 'John Mushi', 'phone': '0711000111'})
+        self.c.post('/customers/new', data={'name': 'John Mushi', 'phone': '0711000222'})
+        self.assertEqual(q1("SELECT COUNT(*) AS n FROM customers WHERE name='John Mushi'")['n'], 2)
+        self.c.post('/customers/new', data={'name': 'Johnny Mushi', 'phone': '+255711000222'})
+        self.assertEqual(q1("SELECT COUNT(*) AS n FROM customers WHERE name='Johnny Mushi'")['n'], 0)
+
+    def test_sale_shows_once_on_customer_page(self):
+        cid = self.customer('Rehema Swai', '0688 777 888')
+        pid = make_product('Once Only Mouse')
+        self.receive(pid, 1, 3)
+        self.sell(cid, [{'pid': pid, 'qty': 1, 'price': 11111}])
+        page = self.c.get(f'/customers/{cid}').get_data(as_text=True)
+        self.assertEqual(len(re.findall(r'INV-ARU-\d{4}-\d{4}', page)) > 0, True)
+        self.assertNotIn('PRO-ARU', page)
+        self.assertNotIn('DN-ARU', page)
+
+    def test_product_merge_keeps_stock_and_history(self):
+        cid = self.customer('Musa Laizer', '0622 333 444')
+        keep = make_product('Anker 20W Charger')
+        dup = make_product('anker 20w  charger')
+        self.receive(keep, 1, 2)
+        self.receive(dup, 1, 3)
+        self.sell(cid, [{'pid': dup, 'qty': 1, 'price': 22222}])
+        page = self.c.get('/settings/duplicates').get_data(as_text=True)
+        self.assertIn('anker 20w  charger', page)
+        self.c.post('/products/merge', data={'keep_id': keep, 'dup_ids[]': [dup]})
+        self.assertEqual(stock_of(keep, 1), 4)
+        self.assertEqual(q1("SELECT is_active FROM products WHERE id=?", (dup,))[0], 0)
+        self.assertIsNotNone(q1("SELECT id FROM document_items WHERE product_id=? AND line_total=22222", (keep,)))
+        self.assertEqual(ledger_matches(), [])
+
+
 class Seeding(unittest.TestCase):
     def test_restart_keeps_products_and_does_not_recreate_admin(self):
         with db() as c:

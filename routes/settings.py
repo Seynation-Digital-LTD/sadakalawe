@@ -124,3 +124,62 @@ def activity():
         ORDER BY a.id DESC LIMIT 500
     """)
     return render_template('settings/activity.html', rows=rows)
+
+
+
+def _norm_model(model):
+    return ''.join(ch for ch in (model or '').lower() if ch.isalnum())
+
+
+@bp.route('/duplicates')
+@login_required
+@admin_required
+def duplicates():
+    """One place to find duplicated sales, sales with two invoices, and duplicate products."""
+    # Same staff, same branch, same customer, same total, within 10 minutes = probably a double entry
+    pairs = query_db("""
+        SELECT a.id AS a_id, a.doc_number AS a_num, a.created_at AS a_at,
+               b.id AS b_id, b.doc_number AS b_num, b.created_at AS b_at,
+               a.total, COALESCE(c.name, a.walkin_name) AS customer_name,
+               br.name AS branch_name, u.full_name AS staff_name
+        FROM documents a
+        JOIN documents b ON b.doc_type = 'invoice' AND b.id > a.id
+             AND b.branch_id = a.branch_id AND b.total = a.total AND b.created_by = a.created_by
+             AND COALESCE(b.customer_id, -1) = COALESCE(a.customer_id, -1)
+             AND COALESCE(b.walkin_name, '') = COALESCE(a.walkin_name, '')
+             AND ABS(julianday(b.created_at) - julianday(a.created_at)) <= 10 / 1440.0
+             AND COALESCE(b.batch_id, '') != COALESCE(a.batch_id, '#')
+        LEFT JOIN customers c ON c.id = a.customer_id
+        JOIN branches br ON br.id = a.branch_id
+        JOIN users u ON u.id = a.created_by
+        WHERE a.doc_type = 'invoice'
+        ORDER BY a.created_at DESC LIMIT 200
+    """)
+    def _lines(doc_id):
+        return [(r['product_id'], r['description'], r['quantity'], r['line_total']) for r in query_db(
+            "SELECT product_id, description, quantity, line_total FROM document_items "
+            "WHERE document_id=? ORDER BY id", (doc_id,))]
+    dup_sales = [dict(p, same_items=_lines(p['a_id']) == _lines(p['b_id'])) for p in pairs]
+
+    # One sale that ended up with two invoices (old proforma → invoice conversion)
+    double_invoiced = query_db("""
+        SELECT batch_id, GROUP_CONCAT(doc_number, ', ') AS numbers,
+               GROUP_CONCAT(id) AS ids, MIN(id) AS first_id, SUM(total) AS counted
+        FROM documents WHERE doc_type='invoice' AND batch_id IS NOT NULL
+        GROUP BY batch_id HAVING COUNT(*) > 1
+        ORDER BY MAX(created_at) DESC
+    """)
+
+    # Products whose names only differ in spaces / capitals / punctuation
+    groups = {}
+    for p in query_db("""
+        SELECT p.*, COALESCE(pc.name, p.brand_category) AS category_name,
+               (SELECT COUNT(*) FROM document_items di WHERE di.product_id = p.id) AS times_sold
+        FROM products p LEFT JOIN product_categories pc ON pc.id = p.category_id
+        WHERE p.is_active = 1 ORDER BY p.id
+    """):
+        groups.setdefault(_norm_model(p['model']), []).append(dict(p))
+    dup_products = [g for g in groups.values() if len(g) > 1]
+
+    return render_template('settings/duplicates.html', dup_sales=dup_sales,
+                           double_invoiced=double_invoiced, dup_products=dup_products)

@@ -1,0 +1,36 @@
+{# Payment card shared by New Document and Edit Document. `doc` is set when editing. #}
+{% set is_credit  = doc is defined and doc and doc.payment_status in ('credit', 'partial') and doc.payment_method == 'credit' %}
+{% set cur_method = (doc.payment_method if doc is defined and doc and doc.payment_method and doc.payment_method != 'credit' else 'cash') %}
+      <div class="col-md-5">
+        <label class="field-label">Payment</label>
+        <div class="payment-type-toggle">
+          <label class="payment-opt payment-opt--cash {% if not is_credit %}active{% endif %}" id="opt-paynow">
+            <input type="radio" name="_timing" value="now" {% if not is_credit %}checked{% endif %}>
+            <i class="bi bi-check-circle"></i> Pay Now
+          </label>
+          <label class="payment-opt payment-opt--credit {% if is_credit %}active{% endif %}" id="opt-credit">
+            <input type="radio" name="_timing" value="credit" {% if is_credit %}checked{% endif %}>
+            <i class="bi bi-clock-history"></i> Credit / Pay Later
+          </label>
+        </div>
+        <input type="hidden" name="payment_type" id="payment_type"
+               value="{{ 'credit' if is_credit else cur_method }}">
+        <div class="pay-method-wrap" id="method-wrap" {% if is_credit %}style="display:none"{% endif %}>
+          <div class="pay-method-label">How was payment made?</div>
+          <div class="pay-method-grid">
+            {% for val, icon, label in PAYMENT_METHODS %}
+            <label class="pay-method-opt {% if val == cur_method %}active{% endif %}" data-method="{{ val }}">
+              <input type="radio" name="_method" value="{{ val }}" {% if val == cur_method %}checked{% endif %}>
+              <i class="bi {{ icon }} method-icon"></i>{{ label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3" id="due-date-section" {% if not is_credit %}style="display:none"{% endif %}>
+        <label class="field-label">Due Date</label>
+        <input type="date" name="credit_due_date" id="credit_due_date" class="form-control"
+               value="{{ doc.credit_due_date or '' if doc is defined and doc else '' }}"
+               {% if not (doc is defined and doc) %}min="{{ today }}"{% endif %}>
+        <p class="field-hint">When must credit be repaid?</p>
+      </div>
