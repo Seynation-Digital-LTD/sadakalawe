@@ -394,6 +394,55 @@ class Duplicates(Base):
         self.assertEqual(ledger_matches(), [])
 
 
+class LibraryPaths(Base):
+    """The parts that depend on Pillow / ReportLab / pypdf / qrcode / openpyxl."""
+    def test_pdfs_excel_and_import(self):
+        import io
+        import openpyxl
+        from pypdf import PdfReader
+        self.login()
+        cid = self.customer('Lucy Shirima', '0699 121 343')
+        pid = make_product('Library Check Speaker')
+        self.receive(pid, 1, 3)
+        self.sell(cid, [{'pid': pid, 'qty': 1, 'price': 88888}], payment_type='credit')
+        inv = q1("SELECT * FROM documents WHERE doc_type='invoice' AND total=88888")
+        batch = [r['id'] for r in q("SELECT id FROM documents WHERE batch_id=?", (inv['batch_id'],))]
+        self.c.post(f'/madeni/{inv["id"]}/pay', data={'amount': 10000, 'payment_method': 'cash'})
+        pay = q1("SELECT id FROM payments WHERE document_id=?", (inv['id'],))
+
+        def pdf_pages(url):
+            r = self.c.get(url)
+            self.assertEqual(r.status_code, 200, url)
+            self.assertTrue(r.data.startswith(b'%PDF'), url)
+            return len(PdfReader(io.BytesIO(r.data)).pages)
+
+        for d in batch:                                   # invoice, proforma, DN (logo + QR)
+            self.assertGreaterEqual(pdf_pages(f'/documents/{d}/pdf'), 1)
+        self.assertGreaterEqual(pdf_pages('/documents/merged?ids=' + ','.join(map(str, batch))), 3)
+        self.assertGreaterEqual(pdf_pages(f'/madeni/customer/{cid}/statement.pdf'), 1)
+        r = self.c.get(f'/madeni/{inv["id"]}/payments/{pay["id"]}/receipt')
+        self.assertEqual(r.status_code, 200)
+
+        r = self.c.get('/documents/zip?ids=' + ','.join(map(str, batch)))
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.data.startswith(b'PK'))
+
+        for url in ['/reports/sales?export=excel', '/expenses/?export=excel']:
+            r = self.c.get(url)
+            self.assertEqual(r.status_code, 200, url)
+            openpyxl.load_workbook(io.BytesIO(r.data))     # opens = valid xlsx
+        for url in ['/reports/pnl', '/reports/stock', '/reports/debts', '/stock-performance']:
+            self.assertEqual(self.c.get(url).status_code, 200, url)
+
+        wb = openpyxl.Workbook()
+        wb.active.append(['name', 'phone'])
+        wb.active.append(['Daudi Mollel', '0700111222'])
+        buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+        r = self.c.post('/import/customers/preview',
+                        data={'file': (buf, 'customers.xlsx')}, content_type='multipart/form-data')
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True)[:200])
+
+
 class Seeding(unittest.TestCase):
     def test_restart_keeps_products_and_does_not_recreate_admin(self):
         with db() as c:
