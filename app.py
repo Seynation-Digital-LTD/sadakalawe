@@ -148,6 +148,24 @@ def create_app():
         except Exception:
             return s[:16]
 
+    from config import WHATS_NEW as _WHATS_NEW
+
+    @app.context_processor
+    def _whats_new():
+        show = (current_user.is_authenticated
+                and not current_user.must_change_password
+                and getattr(current_user, 'whats_new_seen', None) != _WHATS_NEW['version'])
+        return {'whats_new': _WHATS_NEW if show else None}
+
+    @app.route('/whats-new/seen', methods=['POST'])
+    def whats_new_seen():
+        from flask import jsonify
+        from database import execute_db
+        if current_user.is_authenticated:
+            execute_db("UPDATE users SET whats_new_seen=? WHERE id=?",
+                       (_WHATS_NEW['version'], current_user.id))
+        return jsonify(ok=True)
+
     @app.route('/')
     def index():
         return redirect(url_for('reports.dashboard'))

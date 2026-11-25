@@ -334,6 +334,15 @@ class PagesRender(Base):
         self.assertEqual(self.c.get('/products/search?q=Render+Check&branch_id=1').get_json()[0]['branch_stock'], 1)
 
 
+class WhatsNew(Base):
+    def test_popup_shows_once(self):
+        make_user('popup')
+        self.login('popup', 'pw123456')
+        self.assertIn('whats-new-modal', self.c.get('/documents/').get_data(as_text=True))
+        self.c.post('/whats-new/seen')
+        self.assertNotIn('whats-new-modal', self.c.get('/documents/').get_data(as_text=True))
+
+
 class Seeding(unittest.TestCase):
     def test_restart_keeps_products_and_does_not_recreate_admin(self):
         with db() as c:

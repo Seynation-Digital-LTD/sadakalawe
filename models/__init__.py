@@ -59,6 +59,7 @@ class User(UserMixin):
         self.must_change_password = bool(must_change_password)
         self.session_token = session_token
         self._permissions = None  # lazy-loaded
+        self.whats_new_seen = None
 
     @property
     def is_active(self):
@@ -101,8 +102,10 @@ class User(UserMixin):
             keys = row.keys()
             mcp = row['must_change_password'] if 'must_change_password' in keys else 0
             tok = row['session_token'] if 'session_token' in keys else None
-            return User(row['id'], row['username'], row['full_name'],
-                        row['role'], row['branch_id'], row['is_active'], mcp, tok)
+            u = User(row['id'], row['username'], row['full_name'],
+                     row['role'], row['branch_id'], row['is_active'], mcp, tok)
+            u.whats_new_seen = row['whats_new_seen'] if 'whats_new_seen' in keys else None
+            return u
         return None
 
     @staticmethod
@@ -113,8 +116,10 @@ class User(UserMixin):
             keys = row.keys()
             mcp = row['must_change_password'] if 'must_change_password' in keys else 0
             tok = row['session_token'] if 'session_token' in keys else None
-            return User(row['id'], row['username'], row['full_name'],
-                        row['role'], row['branch_id'], row['is_active'], mcp, tok)
+            u = User(row['id'], row['username'], row['full_name'],
+                     row['role'], row['branch_id'], row['is_active'], mcp, tok)
+            u.whats_new_seen = row['whats_new_seen'] if 'whats_new_seen' in keys else None
+            return u
         return None
 
     def get_password_hash(self):

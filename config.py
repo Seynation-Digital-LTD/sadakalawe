@@ -106,3 +106,32 @@ MAIL_PORT     = int(os.environ.get('MAIL_PORT',   '465'))
 MAIL_USERNAME = os.environ.get('MAIL_USERNAME',  '')
 MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD',  '')
 MAIL_FROM     = os.environ.get('MAIL_FROM',      '')
+
+
+# "What's new" popup — shown once to every user after an update.
+# To announce the next update: change 'version' and the items. Everyone sees it once.
+WHATS_NEW = {
+    'version': '2026-11-25',
+    'title': "What's new in Sadakalawe",
+    'items': [
+        ('bi-box-seam', 'Sales now come out of stock',
+         'Pick every item from the product list. You can only sell what your branch has in stock — '
+         'the search shows "In stock here". Items typed by hand are no longer accepted.'),
+        ('bi-person-vcard', 'Real customer names and phone numbers',
+         'Every sale needs a saved customer with first and last name and a phone number. '
+         'Names like "Mteja", "Boss" or "Walk in" are not accepted. New customer? Press Save.'),
+        ('bi-pencil-square', 'Edits fix all 3 documents',
+         'Editing a sale updates the invoice, proforma and delivery note together and corrects the stock.'),
+        ('bi-arrow-return-left', 'Returns go through the invoice',
+         'Search the invoice under Returns. You can only return what was sold, and the stock goes back automatically.'),
+        ('bi-arrow-left-right', 'Stock in and transfers',
+         'Phones need one IMEI per unit when receiving or transferring. Transferred phones can be sold at the new branch.'),
+    ],
+    'admin_items': [
+        ('bi-shield-check', 'Give stock permission',
+         'Staff who receive or transfer stock need the "Receive stock and adjust quantities" permission '
+         '(Users → Edit). Without it they will see "no permission".'),
+        ('bi-journal-text', 'Activity Log',
+         'New page in the Admin menu: who edited, deleted, converted, returned or removed stock.'),
+    ],
+}

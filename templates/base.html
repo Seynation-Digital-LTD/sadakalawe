@@ -199,6 +199,45 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% if whats_new %}
+<div class="modal fade" id="whats-new-modal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content" style="border-radius:14px;overflow:hidden">
+      <div style="background:#F26522;color:#fff;padding:18px 22px">
+        <div style="font-size:12px;opacity:.85;text-transform:uppercase;letter-spacing:.05em">System update</div>
+        <h5 class="m-0 fw-bold">{{ whats_new.title }}</h5>
+      </div>
+      <div class="modal-body" style="padding:18px 22px">
+        {% set rows = whats_new['items'] + (whats_new['admin_items'] if current_user.is_admin else []) %}
+        {% for icon, head, text in rows %}
+        <div class="d-flex gap-3 mb-3">
+          <i class="bi {{ icon }}" style="font-size:22px;color:#F26522;flex-shrink:0;margin-top:2px"></i>
+          <div>
+            <div class="fw-bold" style="font-size:14px">
+              {{ head }}{% if loop.index > whats_new['items']|length %} <span class="badge text-bg-dark ms-1" style="font-size:10px">Admin</span>{% endif %}
+            </div>
+            <div class="text-muted" style="font-size:13px">{{ text }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="modal-footer border-0 pt-0" style="padding:0 22px 18px">
+        <button type="button" id="whats-new-ok" class="btn btn-primary w-100 py-2 fw-bold">Got it</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const el = document.getElementById('whats-new-modal');
+  const modal = new bootstrap.Modal(el);
+  modal.show();
+  document.getElementById('whats-new-ok').addEventListener('click', () => {
+    fetch("{{ url_for('whats_new_seen') }}", {method: 'POST'}).finally(() => modal.hide());
+  });
+})();
+</script>
+{% endif %}
 <script>
 (function () {
   const toggle  = document.getElementById('sidebar-toggle');

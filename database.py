@@ -406,6 +406,8 @@ def _run_migrations(db):
         "ALTER TABLE device_imeis ADD COLUMN sold_at TEXT",
         "CREATE INDEX IF NOT EXISTS idx_device_imeis_product ON device_imeis(product_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_device_imeis_imei ON device_imeis(imei)",
+        # Last "What's new" popup each user has seen — 2026-11-25
+        "ALTER TABLE users ADD COLUMN whats_new_seen TEXT",
         # Branch 3 is called "Sadakalawe 2" — 2026-11-25
         "UPDATE branches SET name='Sadakalawe 2' WHERE short_code='AR2' AND name LIKE '%Tawi%'",
         "UPDATE branches SET address='Arusha' WHERE short_code='AR2' AND address LIKE '%Weka Anwani%'",
