@@ -61,7 +61,17 @@
         <div class="mb-3">
           <label class="field-label">Quantity to Transfer</label>
           <input type="number" name="quantity" id="quantity" class="form-control form-control-lg"
-                 placeholder="0" min="0.01" step="any" required>
+                 placeholder="0" min="1" step="1" required>
+        </div>
+
+        <div class="mb-3">
+          <label class="field-label">IMEI numbers being sent
+            <span style="font-weight:400;font-size:11px;color:var(--c-muted);text-transform:none;letter-spacing:0">
+              — only for IMEI-tracked products, one per line</span></label>
+          <textarea name="imeis" class="form-control" rows="3"
+                    style="font-family:monospace;font-size:13px"
+                    placeholder="358240051111110&#10;358240051111111"></textarea>
+          <div class="field-hint">The devices move to the other branch so they can be sold there.</div>
         </div>
 
         <div class="mb-4">

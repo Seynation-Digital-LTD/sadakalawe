@@ -5,7 +5,9 @@ Per-branch stock tracking, stock-in entries, adjustments, low-stock alerts.
 from flask import (Blueprint, render_template, request, redirect,
                    url_for, flash, jsonify)
 from flask_login import login_required, current_user
-from database import get_db, execute_db, query_db
+from database import get_db, execute_db, query_db, transaction, audit
+from routes.auth import perm_required
+from services import stock as stock_svc
 from datetime import datetime
 
 bp = Blueprint('stock', __name__, url_prefix='/stock')
@@ -81,50 +83,88 @@ def index():
                            show_low=show_low, low_count=low_count)
 
 
+ADJUST_TYPES = {
+    'stock_in':       ('Stock in', +1),
+    'adjustment_in':  ('Adjustment (+)', +1),
+    'adjustment_out': ('Adjustment (−)', -1),
+}
+
+
+def _own_branch(requested):
+    """Staff only move stock at their own branch."""
+    if not current_user.is_admin and current_user.branch_id:
+        return current_user.branch_id
+    try:
+        return int(requested)
+    except (TypeError, ValueError):
+        return None
+
+
 @bp.route('/adjust', methods=['GET', 'POST'])
 @login_required
+@perm_required('manage_stock')
 def adjust():
-    """Record stock-in, adjustment, or return."""
+    """Receive stock or correct a count. Customer returns go through Returns."""
     branches = query_db("SELECT * FROM branches ORDER BY name")
     products = query_db(
-        "SELECT id, brand_category, model, sku FROM products WHERE is_active=1 ORDER BY brand_category, model")
-
+        "SELECT id, brand_category, model, sku, track_units FROM products "
+        "WHERE is_active=1 ORDER BY brand_category, model")
     default_branch_id = current_user.branch_id or (branches[0]['id'] if branches else None)
+
+    def _again():
+        return render_template('stock/adjust.html', branches=branches,
+                               products=products, default_branch_id=default_branch_id)
 
     if request.method == 'POST':
         try:
-            product_id = int(request.form['product_id'])
-            branch_id = int(request.form['branch_id'])
+            product_id    = int(request.form['product_id'])
+            branch_id     = _own_branch(request.form.get('branch_id'))
             movement_type = request.form['movement_type']
-            quantity = float(request.form['quantity'])
-            if quantity <= 0:
-                raise ValueError("Quantity must be positive")
+            quantity      = float(request.form['quantity'])
+            if movement_type not in ADJUST_TYPES:
+                raise ValueError('unknown movement type')
+            if quantity <= 0 or quantity != int(quantity) or not branch_id:
+                raise ValueError('quantity must be a whole number above 0')
         except (ValueError, KeyError) as e:
             flash(f'Please fill in all fields correctly. ({e})', 'danger')
-            return render_template('stock/adjust.html', branches=branches,
-                                   products=products, default_branch_id=default_branch_id)
+            return _again()
 
+        product = query_db("SELECT * FROM products WHERE id=?", (product_id,), one=True)
+        if not product:
+            flash('Product not found.', 'danger')
+            return _again()
         supplier = request.form.get('supplier', '').strip() or None
-        notes = request.form.get('notes', '').strip() or None
-        imei_raw = request.form.get('imeis', '').strip()
-        imeis = [x.strip() for x in imei_raw.replace(',', '\n').splitlines() if x.strip()]
+        notes    = request.form.get('notes', '').strip() or None
+        imeis    = stock_svc.parse_imeis(request.form.get('imeis'))
+        sign     = ADJUST_TYPES[movement_type][1]
+        tracked  = bool(product['track_units'])
 
-        # Determine signed quantity (+/-) for movements
-        if movement_type in ('sale', 'adjustment_out', 'transfer_out'):
-            signed_qty = -abs(quantity)
-        else:
-            signed_qty = abs(quantity)
+        errors = []
+        if sign < 0:
+            have = stock_svc.available(product_id, branch_id)
+            if quantity > have:
+                errors.append(f'Only {have:g} of {product["model"]} at this branch — '
+                              f'you cannot remove {quantity:g}.')
+            if not notes:
+                errors.append('Write the reason for removing stock in Notes (damaged, lost, count error…).')
+        if tracked:
+            if len(imeis) != int(quantity):
+                errors.append(f'{product["model"]} is tracked by IMEI: enter exactly {int(quantity)} '
+                              f'IMEI number(s) — you entered {len(imeis)}.')
+            elif sign < 0:
+                errors += stock_svc.check_units_at_branch(product_id, branch_id, imeis)
+            else:
+                dupes = [x for x in set(imeis)
+                         if query_db("SELECT 1 FROM device_imeis WHERE imei=?", (x,), one=True)]
+                if len(set(imeis)) != len(imeis):
+                    errors.append('The same IMEI is listed twice.')
+                if dupes:
+                    errors.append('Already in the system: ' + ', '.join(sorted(dupes)))
+        if errors:
+            for e in errors:
+                flash(e, 'danger')
+            return _again()
 
-        db = get_db()
-        db.execute("""
-            INSERT INTO stock_movements
-              (product_id, branch_id, movement_type, quantity, supplier, notes, recorded_by)
-            VALUES (?,?,?,?,?,?,?)
-        """, (product_id, branch_id, movement_type, signed_qty,
-              supplier, notes, current_user.id))
-        movement_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
-
-        # Details applied to every unit in this intake batch
         u_color   = request.form.get('unit_color', '').strip() or None
         u_storage = request.form.get('unit_storage', '').strip() or None
         u_cond    = request.form.get('unit_condition', '').strip() or 'new'
@@ -133,58 +173,44 @@ def adjust():
         except ValueError:
             u_cost = 0
 
-        skipped = []
-        for imei in imeis:
-            try:
-                db.execute("""
-                    INSERT INTO device_imeis
-                      (product_id, branch_id, imei, stock_movement_id,
-                       color, storage, condition, cost_price)
-                    VALUES (?,?,?,?,?,?,?,?)
-                """, (product_id, branch_id, imei, movement_id,
-                      u_color, u_storage, u_cond, u_cost))
-            except Exception:
-                skipped.append(imei)  # duplicate IMEI — already in the system
-        db.commit()
+        with transaction():
+            mid = stock_svc.move(product_id, branch_id, sign * quantity, movement_type,
+                                 supplier=supplier, notes=notes)
+            if tracked and sign > 0:
+                for imei in imeis:
+                    execute_db("""
+                        INSERT INTO device_imeis
+                          (product_id, branch_id, imei, stock_movement_id,
+                           color, storage, condition, cost_price)
+                        VALUES (?,?,?,?,?,?,?,?)
+                    """, (product_id, branch_id, imei, mid, u_color, u_storage, u_cond, u_cost))
+            elif tracked and sign < 0:
+                ph = ','.join('?' * len(imeis))
+                execute_db(f"UPDATE device_imeis SET status='removed', notes=? WHERE imei IN ({ph})",
+                           [notes] + imeis)
+            if sign < 0:
+                audit('stock_out', 'product', product_id, product['model'],
+                      f'-{quantity:g}: {notes}', branch_id)
 
-        if skipped:
-            flash('Already registered, skipped: ' + ', '.join(skipped), 'warning')
-
-        # Update product_stock table
-        execute_db("""
-            INSERT INTO product_stock (product_id, branch_id, quantity)
-            VALUES (?,?,?)
-            ON CONFLICT(product_id, branch_id)
-            DO UPDATE SET quantity = MAX(0, quantity + excluded.quantity)
-        """, (product_id, branch_id, signed_qty))
-
-        # Keep products.stock_count in sync (global total)
-        execute_db("""
-            UPDATE products SET
-              stock_count = (
-                SELECT COALESCE(SUM(quantity),0) FROM product_stock WHERE product_id=?
-              ),
-              updated_at = datetime('now','localtime')
-            WHERE id=?
-        """, (product_id, product_id))
-
-        product = query_db("SELECT brand_category, model FROM products WHERE id=?",
-                           (product_id,), one=True)
-        pname = f"{product['brand_category']} {product['model']}" if product else "Product"
-        flash(f'Stock updated — {pname} ({movement_type.replace("_"," ")}: {quantity:g}).', 'success')
+        flash(f'Stock updated — {product["model"]} '
+              f'({ADJUST_TYPES[movement_type][0]}: {quantity:g}).', 'success')
         return redirect(url_for('stock.index'))
 
-    return render_template('stock/adjust.html', branches=branches,
-                           products=products, default_branch_id=default_branch_id)
+    return _again()
 
 
 @bp.route('/transfer', methods=['GET', 'POST'])
 @login_required
+@perm_required('manage_stock')
 def transfer():
-    """Transfer stock from one branch to another."""
+    """Transfer stock (and the IMEI units) from one branch to another."""
     branches = query_db("SELECT * FROM branches ORDER BY name")
     products = query_db(
-        "SELECT id, brand_category, model FROM products WHERE is_active=1 ORDER BY brand_category, model")
+        "SELECT id, brand_category, model, track_units FROM products "
+        "WHERE is_active=1 ORDER BY brand_category, model")
+
+    def _again():
+        return render_template('stock/transfer.html', branches=branches, products=products)
 
     if request.method == 'POST':
         try:
@@ -194,71 +220,51 @@ def transfer():
             quantity    = float(request.form['quantity'])
         except (ValueError, KeyError) as e:
             flash(f'Fill in all fields correctly. ({e})', 'danger')
-            return render_template('stock/transfer.html', branches=branches, products=products)
+            return _again()
 
+        product = query_db("SELECT * FROM products WHERE id=?", (product_id,), one=True)
+        imeis   = stock_svc.parse_imeis(request.form.get('imeis'))
+        errors  = []
+        if not product:
+            errors.append('Product not found.')
         if from_branch == to_branch:
-            flash('Source and destination branches must be different.', 'danger')
-            return render_template('stock/transfer.html', branches=branches, products=products)
-        if quantity <= 0:
-            flash('Quantity must be greater than 0.', 'danger')
-            return render_template('stock/transfer.html', branches=branches, products=products)
-
-        # Check available stock at source
-        available = query_db(
-            "SELECT COALESCE(quantity,0) AS qty FROM product_stock WHERE product_id=? AND branch_id=?",
-            (product_id, from_branch), one=True)
-        avail_qty = available['qty'] if available else 0
-        if quantity > avail_qty:
-            flash(f'Not enough stock — only {avail_qty:g} units available at source branch.', 'danger')
-            return render_template('stock/transfer.html', branches=branches, products=products)
+            errors.append('Source and destination branches must be different.')
+        if (not current_user.is_admin and current_user.branch_id
+                and from_branch != current_user.branch_id):
+            errors.append('You can only send stock out of your own branch.')
+        if quantity <= 0 or quantity != int(quantity):
+            errors.append('Quantity must be a whole number above 0.')
+        if not errors:
+            avail_qty = stock_svc.available(product_id, from_branch)
+            if quantity > avail_qty:
+                errors.append(f'Not enough stock — only {avail_qty:g} units available at source branch.')
+            if product['track_units']:
+                if len(imeis) != int(quantity):
+                    errors.append(f'{product["model"]} is tracked by IMEI: list the {int(quantity)} '
+                                  f'IMEI(s) being sent (you listed {len(imeis)}).')
+                else:
+                    errors += stock_svc.check_units_at_branch(product_id, from_branch, imeis)
+        if errors:
+            for e in errors:
+                flash(e, 'danger')
+            return _again()
 
         notes = request.form.get('notes', '').strip() or None
-        db = get_db()
+        with transaction():
+            stock_svc.move(product_id, from_branch, -quantity, 'transfer_out', notes=notes)
+            stock_svc.move(product_id, to_branch, quantity, 'transfer_in', notes=notes)
+            if imeis:
+                ph = ','.join('?' * len(imeis))
+                execute_db(f"UPDATE device_imeis SET branch_id=? WHERE imei IN ({ph})",
+                           [to_branch] + imeis)
 
-        # Log transfer_out at source
-        db.execute("""
-            INSERT INTO stock_movements
-              (product_id, branch_id, movement_type, quantity, notes, recorded_by)
-            VALUES (?,?,'transfer_out',?,?,?)
-        """, (product_id, from_branch, -quantity, notes, current_user.id))
-
-        # Log transfer_in at destination
-        db.execute("""
-            INSERT INTO stock_movements
-              (product_id, branch_id, movement_type, quantity, notes, recorded_by)
-            VALUES (?,?,'transfer_in',?,?,?)
-        """, (product_id, to_branch, quantity, notes, current_user.id))
-        db.commit()
-
-        # Update product_stock at both branches
-        execute_db("""
-            INSERT INTO product_stock (product_id, branch_id, quantity) VALUES (?,?,?)
-            ON CONFLICT(product_id, branch_id)
-            DO UPDATE SET quantity = MAX(0, quantity - excluded.quantity)
-        """, (product_id, from_branch, quantity))
-
-        execute_db("""
-            INSERT INTO product_stock (product_id, branch_id, quantity) VALUES (?,?,?)
-            ON CONFLICT(product_id, branch_id)
-            DO UPDATE SET quantity = quantity + excluded.quantity
-        """, (product_id, to_branch, quantity))
-
-        # Sync global stock_count
-        execute_db("""
-            UPDATE products SET stock_count = (
-                SELECT COALESCE(SUM(quantity),0) FROM product_stock WHERE product_id=?
-            ) WHERE id=?
-        """, (product_id, product_id))
-
-        product = query_db("SELECT brand_category, model FROM products WHERE id=?",
-                           (product_id,), one=True)
-        from_b  = query_db("SELECT name FROM branches WHERE id=?", (from_branch,), one=True)
-        to_b    = query_db("SELECT name FROM branches WHERE id=?", (to_branch,), one=True)
+        from_b = query_db("SELECT name FROM branches WHERE id=?", (from_branch,), one=True)
+        to_b   = query_db("SELECT name FROM branches WHERE id=?", (to_branch,), one=True)
         flash(f'Transferred {quantity:g}× {product["brand_category"]} {product["model"]} '
               f'from {from_b["name"]} → {to_b["name"]}.', 'success')
         return redirect(url_for('stock.index'))
 
-    return render_template('stock/transfer.html', branches=branches, products=products)
+    return _again()
 
 
 @bp.route('/movements')

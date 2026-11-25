@@ -53,7 +53,6 @@
           <div class="row g-2">
             {% for val, icon, label, desc in [
               ('stock_in',      'bi-box-arrow-in-down', 'Stock In',          'New goods received from supplier'),
-              ('return',        'bi-arrow-return-left', 'Customer Return',    'Customer returned an item'),
               ('adjustment_in', 'bi-plus-circle',       'Adjustment (+)',     'Add units (counting correction)'),
               ('adjustment_out','bi-dash-circle',        'Adjustment (−)',    'Remove units (counting correction)'),
             ] %}
@@ -77,7 +76,7 @@
         <div class="mb-3">
           <label class="field-label">Quantity</label>
           <input type="number" name="quantity" class="form-control form-control-lg"
-                 placeholder="0" min="0.01" step="any" required>
+                 placeholder="0" min="1" step="1" required>
         </div>
 
         <div class="mb-3">
@@ -95,7 +94,9 @@
           <textarea name="imeis" id="imei-input" class="form-control" rows="3"
                     placeholder="Enter IMEI numbers here, one per line&#10;Example:&#10;358240051111110&#10;358240051111111"
                     style="font-family:monospace;font-size:13px"></textarea>
-          <div class="field-hint">Leave blank if not applicable (e.g. accessories, cables).</div>
+          <div class="field-hint">Required for IMEI-tracked products (phones, laptops): one IMEI per unit,
+            count must match the quantity. Leave blank for accessories and cables.
+            Customer returns are recorded under <b>Returns</b>, linked to the invoice.</div>
 
           <div class="row g-2 mt-2">
             <div class="col-md-3">
@@ -146,7 +147,7 @@
 (function () {
   const imeiSection = document.getElementById('imei-section');
   const radios = document.querySelectorAll('input[name="movement_type"]');
-  const IMEI_TYPES = ['stock_in', 'return'];
+  const IMEI_TYPES = ['stock_in', 'adjustment_in', 'adjustment_out'];
 
   function updateImei() {
     const val = document.querySelector('input[name="movement_type"]:checked');

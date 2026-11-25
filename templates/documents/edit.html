@@ -32,7 +32,7 @@
         <label class="field-label">Branch</label>
         <input type="text" class="form-control" value="{{ doc.branch_name }}" readonly
                style="background:var(--c-surface-low);cursor:default">
-        <input type="hidden" name="branch_id" value="{{ doc.branch_id }}">
+        <input type="hidden" name="branch_id" id="branch_id" value="{{ doc.branch_id }}">
       </div>
       <div class="col-md-5">
         <label class="field-label">Payment</label>
@@ -105,7 +105,8 @@
         <div class="position-relative">
           <input type="text" name="walkin_name" id="walkin_name" class="form-control"
                  value="{{ doc.customer_name or '' }}"
-                 placeholder="Type name or search contacts…" autocomplete="off">
+                 placeholder="Search customer by name or phone…" autocomplete="off">
+          <div class="field-hint">Pick a saved customer. To add a new one, use Customers → Add Customer first.</div>
           <div id="customer-dropdown" class="ac-dropdown" style="display:none"></div>
         </div>
       </div>
@@ -196,6 +197,7 @@ const VAT_RATE            = {{ vat_rate }};
 const CUSTOMER_SEARCH_URL = "{{ url_for('customers.search') }}";
 const PRODUCT_SEARCH_URL  = "{{ url_for('products.search') }}";
 const CUSTOMER_QUICK_ADD  = "{{ url_for('customers.quick_add') }}";
+const UNITS_API_URL       = "{{ url_for('stock.api_units') }}";
 const TODAY               = "{{ today }}";
 
 // PREFILL_DATA is read by main.js on DOMContentLoaded to pre-populate rows

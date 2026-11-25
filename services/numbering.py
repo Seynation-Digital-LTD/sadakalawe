@@ -1,4 +1,4 @@
-from database import get_db
+from database import get_db, commit_unless_in_transaction
 from config import DOC_TYPE_PREFIXES
 
 
@@ -21,5 +21,6 @@ def get_next_number(branch_id, doc_type, year):
         WHERE branch_id=? AND doc_type=? AND year=?
     """, (branch_id, doc_type, year)).fetchone()['last_sequence']
 
-    db.commit()
+    # Inside a sale's transaction the number is only used up if the sale saves.
+    commit_unless_in_transaction()
     return f"{prefix}-{short_code}-{year}-{seq:04d}"

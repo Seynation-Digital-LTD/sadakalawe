@@ -188,8 +188,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ── Product popup ──────────────────────────────────────────
+  function currentBranch() {
+    const el = document.getElementById('branch_id');
+    return el ? el.value : '';
+  }
+
   function searchProducts(q, inp, tr) {
-    fetch(`${PRODUCT_SEARCH_URL}?q=${encodeURIComponent(q)}`)
+    fetch(`${PRODUCT_SEARCH_URL}?q=${encodeURIComponent(q)}&branch_id=${encodeURIComponent(currentBranch())}`)
       .then(r => r.json())
       .then(data => {
         if (!data.length) { hideProd(); return; }
@@ -205,12 +210,22 @@ document.addEventListener('DOMContentLoaded', () => {
             ? `${p.category_name} › ${p.subcategory_name}`
             : (p.category_name || '');
           const descLine = catLabel ? `${catLabel} — ${p.model}` : p.model;
+          const here = Number(p.branch_stock ?? 0);
           const div = document.createElement('div');
           div.className = 'ac-item';
+          if (here <= 0) div.style.opacity = '0.55';
           div.innerHTML =
             `<div class="ac-item__main">${esc(p.model)}</div>` +
-            `<div class="ac-item__sub">${esc(catLabel)}${catLabel ? ' &nbsp;·&nbsp; ' : ''}TZS ${fmt(p.price)} &nbsp;·&nbsp; Stock: ${p.stock_count ?? '—'}</div>`;
+            `<div class="ac-item__sub">${esc(catLabel)}${catLabel ? ' &nbsp;·&nbsp; ' : ''}TZS ${fmt(p.price)} &nbsp;·&nbsp; ` +
+            (here > 0
+              ? `<span style="color:#15803d;font-weight:600">In stock here: ${fmt(here)}</span>`
+              : `<span style="color:#b91c1c;font-weight:600">Out of stock at this branch</span>`) +
+            `</div>`;
           div.addEventListener('mousedown', () => {
+            if (here <= 0) {
+              alert(`${p.model} is out of stock at this branch.\n\nReceive it first (Stock → Add / Adjust Stock) or transfer it from another branch.`);
+              return;
+            }
             tr.querySelector('.desc-inp').value  = descLine;
             tr.querySelector('.pid-inp').value   = p.id;
             tr.querySelector('.price-inp').value = p.price;
@@ -298,6 +313,24 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!hasItem) {
       e.preventDefault();
       alert('Please add at least one item before proceeding.');
+      return;
+    }
+
+    // Every item must be picked from the product list so it comes out of stock.
+    const typed = [];
+    itemsBody.querySelectorAll('tr').forEach(tr => {
+      const d = tr.querySelector('.desc-inp');
+      if (d && d.value.trim() && !tr.querySelector('.pid-inp').value) {
+        typed.push(d.value.trim());
+        d.style.borderColor = '#ef4444';
+      }
+    });
+    if (typed.length) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      alert('Pick these items from the product list (type, then click the product):\n\n• ' +
+            typed.join('\n• ') +
+            '\n\nIf a product is missing, ask the admin to add it to the catalogue.');
       return;
     }
 

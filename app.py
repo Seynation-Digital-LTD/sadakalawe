@@ -2,7 +2,7 @@ import os
 import logging
 import traceback
 from datetime import timedelta, datetime
-from flask import Flask, redirect, url_for, session, render_template
+from flask import Flask, redirect, url_for, session, render_template, flash
 from flask_login import LoginManager, current_user
 from database import close_db, init_db
 from models import User
@@ -14,7 +14,9 @@ def create_app():
     app = Flask(__name__)
     from config import SECRET_KEY
     app.config['SECRET_KEY'] = SECRET_KEY
-    app.config['DATABASE'] = os.path.join(os.path.dirname(__file__), 'data', 'sadakalawe.db')
+    # SADAKALAWE_DB lets the test suite run against a throwaway database.
+    app.config['DATABASE'] = (os.environ.get('SADAKALAWE_DB')
+                              or os.path.join(os.path.dirname(__file__), 'data', 'sadakalawe.db'))
     app.config['BACKUP_DIR'] = os.path.join(os.path.dirname(__file__), 'backups')
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB

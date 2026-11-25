@@ -281,8 +281,14 @@ def search():
     q = request.args.get('q', '').strip()
     if not q:
         return jsonify([])
+    # Stock shown on the sale screen is what THIS branch has — that is what can be sold.
+    branch_id = request.args.get('branch_id', type=int)
+    if not current_user.is_admin and current_user.branch_id:
+        branch_id = current_user.branch_id
     rows = query_db("""
         SELECT p.id, p.model, p.description, p.price, p.stock_count, p.track_units,
+               (SELECT COALESCE(quantity,0) FROM product_stock
+                 WHERE product_id=p.id AND branch_id=?) AS branch_stock,
                pc.name AS category_name,
                ps.name AS subcategory_name
         FROM products p
@@ -293,5 +299,5 @@ def search():
                OR pc.name LIKE ? OR ps.name LIKE ? OR p.barcode LIKE ?)
         ORDER BY pc.sort_order, ps.sort_order, p.model
         LIMIT 25
-    """, (f'%{q}%',) * 6)
+    """, (branch_id,) + (f'%{q}%',) * 6)
     return jsonify([dict(r) for r in rows])

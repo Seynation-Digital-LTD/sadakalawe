@@ -109,3 +109,18 @@ def test_email():
     else:
         flash(f'Test failed: {err}', 'danger')
     return redirect(url_for('settings.index'))
+
+
+@bp.route('/activity')
+@login_required
+@admin_required
+def activity():
+    """Who edited, deleted, converted or wrote off what — newest first."""
+    rows = query_db("""
+        SELECT a.*, u.full_name AS user_name, b.name AS branch_name
+        FROM audit_log a
+        LEFT JOIN users u ON u.id = a.user_id
+        LEFT JOIN branches b ON b.id = a.branch_id
+        ORDER BY a.id DESC LIMIT 500
+    """)
+    return render_template('settings/activity.html', rows=rows)

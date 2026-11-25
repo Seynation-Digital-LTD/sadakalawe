@@ -2,6 +2,7 @@ import csv
 import io
 from flask import Blueprint, render_template, request, jsonify
 from flask_login import login_required, current_user
+from routes.auth import admin_required
 from database import execute_db, query_db
 
 bp = Blueprint('import_data', __name__, url_prefix='/import')
@@ -102,12 +103,14 @@ def _read_file(f):
 
 @bp.route('/')
 @login_required
+@admin_required
 def index():
     return render_template('import/index.html')
 
 
 @bp.route('/products', methods=['POST'])
 @login_required
+@admin_required
 def import_products():
     f = request.files.get('file')
     if not f or not f.filename:
@@ -199,6 +202,7 @@ def import_products():
 
 @bp.route('/products/preview', methods=['POST'])
 @login_required
+@admin_required
 def preview_products():
     """Return first 10 rows of the file so the user can verify before importing."""
     f = request.files.get('file')
@@ -215,6 +219,7 @@ def preview_products():
 
 @bp.route('/customers/preview', methods=['POST'])
 @login_required
+@admin_required
 def preview_customers():
     f = request.files.get('file')
     if not f or not f.filename:
@@ -230,6 +235,7 @@ def preview_customers():
 
 @bp.route('/customers', methods=['POST'])
 @login_required
+@admin_required
 def import_customers():
     f = request.files.get('file')
     if not f or not f.filename:

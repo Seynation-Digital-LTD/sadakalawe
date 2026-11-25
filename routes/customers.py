@@ -3,6 +3,8 @@ from flask_login import login_required, current_user
 from database import get_db, execute_db, query_db
 from routes.auth import perm_required
 from services.text_utils import tc, sc
+from services.customer_rules import (clean_name, name_error, phone_error,
+                                     normalize_phone, find_by_phone)
 
 bp = Blueprint('customers', __name__, url_prefix='/customers')
 
@@ -49,17 +51,18 @@ def list():
 def new():
     branches = query_db("SELECT * FROM branches ORDER BY name")
     if request.method == 'POST':
-        name = tc(request.form['name'])
-        if not name:
-            flash('Customer name is required.', 'danger')
-            return render_template('customers/form.html', branches=branches, action='new')
-
-        phone = request.form.get('phone', '').strip()
+        name  = clean_name(request.form.get('name'))
         tin   = request.form.get('tin', '').strip().upper() or None
+        err   = name_error(name, tin) or phone_error(request.form.get('phone'))
+        if err:
+            flash(err, 'danger')
+            return render_template('customers/form.html', branches=branches, action='new',
+                                   customer=request.form)
+        phone = normalize_phone(request.form.get('phone'))
 
         # Duplicate checks
         if phone:
-            dup = query_db("SELECT id, name FROM customers WHERE phone=?", (phone,), one=True)
+            dup = find_by_phone(phone)
             if dup:
                 flash(f'Phone {phone} is already registered to "{dup["name"]}". '
                       f'Check existing customer first.', 'danger')
@@ -128,18 +131,17 @@ def edit(customer_id):
     branches = query_db("SELECT * FROM branches ORDER BY name")
 
     if request.method == 'POST':
-        name = tc(request.form['name'])
-        if not name:
-            flash('Customer name is required.', 'danger')
-            return render_template('customers/form.html', customer=customer, branches=branches, action='edit')
-
-        phone = request.form.get('phone', '').strip()
+        name  = clean_name(request.form.get('name'))
         tin   = request.form.get('tin', '').strip().upper() or None
+        err   = name_error(name, tin) or phone_error(request.form.get('phone'))
+        if err:
+            flash(err, 'danger')
+            return render_template('customers/form.html', customer=customer, branches=branches, action='edit')
+        phone = normalize_phone(request.form.get('phone'))
 
         # Duplicate checks (exclude current record)
         if phone:
-            dup = query_db("SELECT id, name FROM customers WHERE phone=? AND id!=?",
-                           (phone, customer_id), one=True)
+            dup = find_by_phone(phone, exclude_id=customer_id)
             if dup:
                 flash(f'Phone {phone} is already registered to "{dup["name"]}".', 'danger')
                 return render_template('customers/form.html', customer=customer,
@@ -174,24 +176,30 @@ def edit(customer_id):
 @bp.route('/quick-add', methods=['POST'])
 @login_required
 def quick_add():
-    """AJAX endpoint — create a customer inline from the New Document form."""
-    data = request.get_json(silent=True) or {}
-    name = tc(data.get('name') or '')
-    if not name:
-        return jsonify({'error': 'Name is required'}), 400
-    branch_id = current_user.branch_id or None
+    """AJAX endpoint — create (or find) a customer inline from the New Document form.
+
+    Needs a real full name and a working phone number. If the phone already
+    belongs to a customer, that customer is returned instead of a duplicate.
+    """
+    data  = request.get_json(silent=True) or {}
+    name  = clean_name(data.get('name'))
+    tin   = (data.get('tin') or '').strip().upper() or None
+    err   = name_error(name, tin) or phone_error(data.get('phone'))
+    if err:
+        return jsonify({'error': err}), 400
+    phone = normalize_phone(data.get('phone'))
+
+    existing = find_by_phone(phone)
+    if existing:
+        return jsonify({'id': existing['id'], 'name': existing['name'],
+                        'phone': existing['phone'] or phone, 'existing': True})
+
     cid = execute_db("""
         INSERT INTO customers (name, phone, address, tin, branch_id)
         VALUES (?, ?, ?, ?, ?)
-    """, (
-        name,
-        (data.get('phone') or '').strip() or None,
-        tc(data.get('address') or '') or None,
-        (data.get('tin') or '').strip().upper() or None,
-        branch_id,
-    ))
-    return jsonify({'id': cid, 'name': name,
-                    'phone': data.get('phone', '').strip()})
+    """, (name, phone, tc(data.get('address') or '') or None, tin,
+          current_user.branch_id or None))
+    return jsonify({'id': cid, 'name': name, 'phone': phone, 'existing': False})
 
 
 @bp.route('/<int:customer_id>/delete', methods=['POST'])

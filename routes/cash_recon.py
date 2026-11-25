@@ -26,23 +26,56 @@ BUCKET_MAP = {
 }
 
 
+def _bucket(method):
+    return BUCKET_MAP.get(method or 'cash', 'other')
+
+
 def _day_sales(branch_id, date_str):
-    """Sum paid invoice totals by payment bucket for a given date and branch."""
-    rows = query_db("""
-        SELECT payment_method, SUM(total) AS total
-        FROM documents
-        WHERE doc_type='invoice' AND status='final'
-          AND DATE(created_at) = ?
-          AND branch_id = ?
-          AND payment_status NOT IN ('credit')
-        GROUP BY payment_method
-    """, (date_str, branch_id))
+    """Money the system says came in (and went out) for a branch on a day, per method.
+
+      + money taken at the till for that day's invoices (not the later credit payments)
+      + credit / partial payments recorded that day (Credits → Record Payment)
+      + financing installments paid that day
+      − cash refunds given that day
+    """
     buckets = {m: 0.0 for m in METHODS}
-    for r in rows:
-        pm = r['payment_method'] or 'cash'
-        bucket = BUCKET_MAP.get(pm, 'other')
-        buckets[bucket] += (r['total'] or 0)
-    return buckets
+
+    # Paid at the moment of sale: amount_paid minus whatever came later through Credits.
+    for r in query_db("""
+        SELECT d.payment_method,
+               d.amount_paid - COALESCE((SELECT SUM(p.amount) FROM payments p
+                                         WHERE p.document_id = d.id), 0) AS at_till
+        FROM documents d
+        WHERE d.doc_type='invoice' AND d.status='final'
+          AND DATE(d.created_at) = ? AND d.branch_id = ?
+          AND d.payment_method != 'credit'
+    """, (date_str, branch_id)):
+        buckets[_bucket(r['payment_method'])] += max(0.0, float(r['at_till'] or 0))
+
+    for r in query_db("""
+        SELECT p.payment_method, SUM(p.amount) AS amt
+        FROM payments p JOIN documents d ON d.id = p.document_id
+        WHERE DATE(p.payment_date) = ? AND d.branch_id = ?
+        GROUP BY p.payment_method
+    """, (date_str, branch_id)):
+        buckets[_bucket(r['payment_method'])] += float(r['amt'] or 0)
+
+    for r in query_db("""
+        SELECT fi.payment_method, SUM(fi.amount_paid) AS amt
+        FROM financing_installments fi JOIN financing_plans fp ON fp.id = fi.plan_id
+        WHERE DATE(fi.paid_date) = ? AND fp.branch_id = ? AND fi.amount_paid > 0
+        GROUP BY fi.payment_method
+    """, (date_str, branch_id)):
+        buckets[_bucket(r['payment_method'])] += float(r['amt'] or 0)
+
+    refunds = query_db("""
+        SELECT COALESCE(SUM(refund_amount),0) AS amt FROM returns
+        WHERE return_type='refund' AND status='approved'
+          AND DATE(created_at) = ? AND branch_id = ?
+    """, (date_str, branch_id), one=True)['amt']
+    buckets['cash'] -= float(refunds or 0)
+
+    return {m: round(v, 2) for m, v in buckets.items()}
 
 
 @bp.route('/')
