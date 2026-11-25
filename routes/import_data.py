@@ -4,6 +4,7 @@ from flask import Blueprint, render_template, request, jsonify
 from flask_login import login_required, current_user
 from routes.auth import admin_required
 from database import execute_db, query_db
+from services import stock as stock_svc
 
 bp = Blueprint('import_data', __name__, url_prefix='/import')
 
@@ -105,7 +106,8 @@ def _read_file(f):
 @login_required
 @admin_required
 def index():
-    return render_template('import/index.html')
+    return render_template('import/index.html',
+                           branches=query_db("SELECT id, name FROM branches ORDER BY name"))
 
 
 @bp.route('/products', methods=['POST'])
@@ -121,6 +123,9 @@ def import_products():
         return jsonify({'imported': 0, 'skipped': 0, 'errors': [err]}), 400
 
     branches = query_db("SELECT id FROM branches")
+    stock_branch = request.form.get('branch_id', type=int)
+    if stock_branch and not any(b['id'] == stock_branch for b in branches):
+        stock_branch = None
 
     imported = 0
     skipped  = 0
@@ -182,9 +187,8 @@ def import_products():
                 INSERT INTO products
                   (brand_category, category_id, model, description, price, cost_price,
                    stock_count, sku, is_active)
-                VALUES (?,?,?,?,?,?,?,?,1)
-            """, (category_name, category_id, model, description, price, cost_price,
-                  stock_count, sku))
+                VALUES (?,?,?,?,?,?,0,?,1)
+            """, (category_name, category_id, model, description, price, cost_price, sku))
 
             # Ensure product_stock rows for all branches
             for b in branches:
@@ -192,6 +196,10 @@ def import_products():
                     "INSERT OR IGNORE INTO product_stock (product_id, branch_id, quantity) VALUES (?,?,0)",
                     (pid, b['id'])
                 )
+            if stock_count > 0:
+                if not stock_branch:
+                    raise ValueError('pick the branch for the stock_count column')
+                stock_svc.move(pid, stock_branch, stock_count, 'stock_in', notes='Imported')
             imported += 1
         except Exception as e:
             errors.append(f'Row {i} ({model}): {e}')

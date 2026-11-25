@@ -100,11 +100,20 @@
                min="0" step="1000" placeholder="0">
       </div>
       {% endif %}
-      <div class="col-md-3">
-        <label class="form-label fw-semibold">Stock Count</label>
-        <input type="number" name="stock_count" class="form-control"
-               value="{{ product.stock_count if product else 0 }}" min="0">
+      {% if not product %}
+      <div class="col-md-3" id="opening-stock-box">
+        <label class="form-label fw-semibold">Opening stock</label>
+        <div class="input-group">
+          <input type="number" name="opening_stock" class="form-control" value="0" min="0" step="1">
+          <select name="branch_id" class="form-select" title="Branch where these goods are">
+            {% for b in branches %}
+            <option value="{{ b.id }}" {% if b.id == default_branch_id %}selected{% endif %}>{{ b.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-text">How many you have now, and at which branch.</div>
       </div>
+      {% endif %}
       <div class="col-md-3">
         <label class="form-label fw-semibold">Low Stock Alert</label>
         <input type="number" name="low_stock_alert" class="form-control"
@@ -112,6 +121,20 @@
                title="Warn when stock falls to this number">
       </div>
     </div>
+
+    {% if product %}
+    <div class="mb-3 p-3 rounded border">
+      <div class="d-flex flex-wrap align-items-center gap-3">
+        <span class="fw-semibold"><i class="bi bi-boxes"></i> Stock:</span>
+        {% for bs in branch_stock %}
+          <span>{{ bs.name }}: <b>{{ bs.quantity|int }}</b></span>
+        {% endfor %}
+        <a href="{{ url_for('stock.adjust', product_id=product.id) }}" class="btn btn-sm btn-outline-primary ms-auto">
+          <i class="bi bi-box-arrow-in-down"></i> Add stock</a>
+      </div>
+      <div class="form-text">Stock is changed under Stock (Stock In, Transfer, Returns, Sales) so every branch's count and history stays right.</div>
+    </div>
+    {% endif %}
 
     <!-- Per-unit tracking -->
     <div class="mb-4">
@@ -191,6 +214,13 @@
       subcatSel.appendChild(opt);
     });
     subcatSel.disabled = subs.length === 0;
+  }
+
+  // Phones/laptops are received with one IMEI per unit, so no plain opening number.
+  const trk = document.getElementById('track_units'), obox = document.getElementById('opening-stock-box');
+  if (trk && obox) {
+    const sync = () => { obox.style.display = trk.checked ? 'none' : ''; };
+    trk.addEventListener('change', sync); sync();
   }
 
   catSel.addEventListener('change', filterSubs);

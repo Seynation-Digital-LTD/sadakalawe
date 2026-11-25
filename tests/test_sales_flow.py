@@ -293,8 +293,13 @@ class AccessAndLogin(Base):
         self.assertEqual(stock_of(pid, 1), 3)
         self.assertEqual(stock_of(pid, 2), 2)
         before = stock_of(pid, 2)
-        self.receive(pid, 2, 10)                       # no manage_stock permission
-        self.assertEqual(stock_of(pid, 2), before)
+        self.receive(pid, 1, 10)                       # staff can receive — always into their own branch
+        self.assertEqual(stock_of(pid, 2), before + 10)
+        self.assertEqual(stock_of(pid, 1), 3)
+        r = self.c.post('/stock/adjust', data={'product_id': pid, 'branch_id': 2, 'quantity': 5,
+                        'movement_type': 'adjustment_out', 'notes': 'x'}, follow_redirects=True)
+        self.assertEqual(stock_of(pid, 2), before + 10)   # corrections need manage_stock
+        self.assertIn('permission', self.flashes(r))
 
     def test_login_throttle_and_redirect(self):
         make_user('throttled')
@@ -392,6 +397,78 @@ class Duplicates(Base):
         self.assertEqual(q1("SELECT is_active FROM products WHERE id=?", (dup,))[0], 0)
         self.assertIsNotNone(q1("SELECT id FROM document_items WHERE product_id=? AND line_total=22222", (keep,)))
         self.assertEqual(ledger_matches(), [])
+
+
+class StockEntry(Base):
+    """'We added stock but where is it?' — every way of entering stock lands in a branch."""
+    def test_new_product_opening_stock_goes_to_branch(self):
+        make_user('arustaff', branch_id=1, perms=('manage_products', 'create_documents', 'view_customers'))
+        self.login('arustaff', 'pw123456')
+        r = self.c.post('/products/new', data={'model': 'Opening Stock Cable', 'category_id': 5,
+                        'price': 20000, 'opening_stock': 4, 'branch_id': 2, 'low_stock_alert': 2})
+        self.assertEqual(r.status_code, 302)
+        p = q1("SELECT * FROM products WHERE model='Opening Stock Cable'")
+        self.assertEqual(stock_of(p['id'], 1), 4)          # staff: own branch, not the one picked
+        self.assertEqual(p['stock_count'], 4)
+        self.assertEqual(p['low_stock_alert'], 2)
+        self.assertEqual(ledger_matches(), [])
+        cid = self.customer('Grace Lyimo', '0711 222 333')
+        self.sell(cid, [{'pid': p['id'], 'qty': 2}])
+        self.assertEqual(stock_of(p['id'], 1), 2)
+
+    def test_edit_keeps_stock_and_hidden_cost(self):
+        pid = make_product('Edit Keeps Stock')
+        with db() as c:
+            c.execute("UPDATE products SET cost_price=33000 WHERE id=?", (pid,))
+        self.login()
+        self.receive(pid, 1, 6)
+        make_user('editor', branch_id=1, perms=('manage_products',))
+        self.c.get('/logout'); self.login('editor', 'pw123456')
+        self.c.post(f'/products/{pid}/edit', data={'model': 'Edit Keeps Stock', 'category_id': 5,
+                    'price': 60000, 'is_active': 1, 'stock_count': 999})
+        p = q1("SELECT * FROM products WHERE id=?", (pid,))
+        self.assertEqual(p['stock_count'], 6)
+        self.assertEqual(p['cost_price'], 33000)
+        self.assertEqual(p['price'], 60000)
+
+    def test_unplaced_stock_can_be_put_in_branch(self):
+        pid = make_product('Typed Count Speaker')
+        with db() as c:                                       # what the old product form did
+            c.execute("UPDATE products SET stock_count=5 WHERE id=?", (pid,))
+        self.login()
+        cid = self.customer('Baraka Swai', '0744 999 000')
+        r = self.sell(cid, [{'pid': pid, 'qty': 1, 'price': 7777}])
+        self.assertIn('in no branch', self.flashes(r))
+        self.assertIn('Typed Count Speaker', self.c.get('/stock/unplaced').get_data(as_text=True))
+        self.assertIn('not in any branch', self.c.get('/stock/').get_data(as_text=True))
+        self.c.post('/stock/unplaced', data={'product_id': pid, 'branch_id': 1, 'quantity': 3})
+        self.assertEqual(stock_of(pid, 1), 3)
+        self.assertEqual(q1("SELECT stock_count FROM products WHERE id=?", (pid,))['stock_count'], 5)
+        self.c.post('/stock/unplaced', data={'product_id': pid, 'branch_id': 2, 'quantity': 2})
+        self.assertEqual(stock_of(pid, 2), 2)
+        self.assertEqual(q1("SELECT stock_count FROM products WHERE id=?", (pid,))['stock_count'], 5)
+        self.assertEqual(ledger_matches(), [])
+        self.sell(cid, [{'pid': pid, 'qty': 1, 'price': 7777}])
+        self.assertEqual(stock_of(pid, 1), 2)
+
+    def test_sale_error_says_other_branch_has_it(self):
+        pid = make_product('Only In Dar Charger')
+        self.login()
+        self.receive(pid, 2, 3)
+        cid = self.customer('Rehema Kimaro', '0755 123 987')
+        r = self.sell(cid, [{'pid': pid, 'qty': 1}], branch_id=1)
+        self.assertIn('Transfer Stock', self.flashes(r))
+
+    def test_import_stock_goes_to_branch(self):
+        import io
+        self.login()
+        csv = io.BytesIO(b"brand_category,model,price,stock_count\nAccessories,Imported Count Hub,15000,7\n")
+        r = self.c.post('/import/products', data={'file': (csv, 'p.csv'), 'branch_id': 2},
+                        content_type='multipart/form-data')
+        self.assertEqual(r.get_json()['imported'], 1, r.get_json())
+        p = q1("SELECT id, stock_count FROM products WHERE model='Imported Count Hub'")
+        self.assertEqual(stock_of(p['id'], 2), 7)
+        self.assertEqual(p['stock_count'], 7)
 
 
 class LibraryPaths(Base):

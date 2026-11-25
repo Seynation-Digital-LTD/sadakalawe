@@ -93,9 +93,29 @@ def check_sale(items, branch_id, giving_back=None):
         have = available(pid, branch_id) + giving_back.get(pid, 0)
         if qty > have + 1e-9:
             errors.append(f'Not enough stock for {p["model"]}: this branch has {have:g}, '
-                          f'the sale needs {qty:g}. Receive the stock first (Stock → Add / Adjust) '
-                          f'or transfer it from another branch.')
+                          f'the sale needs {qty:g}. {where_is(pid, branch_id)}')
     return errors
+
+
+def where_is(product_id, branch_id):
+    """Plain hint telling staff where this product's stock actually is."""
+    others = query_db("""
+        SELECT b.name, ps.quantity FROM product_stock ps JOIN branches b ON b.id=ps.branch_id
+         WHERE ps.product_id=? AND ps.branch_id!=? AND ps.quantity>0 ORDER BY ps.quantity DESC
+    """, (product_id, branch_id))
+    tot = query_db("""SELECT p.stock_count,
+                             COALESCE((SELECT SUM(quantity) FROM product_stock WHERE product_id=p.id),0) AS b
+                        FROM products p WHERE p.id=?""", (product_id,), one=True)
+    hints = []
+    if others:
+        hints.append('In stock at ' + ', '.join(f'{r["name"]} ({r["quantity"]:g})' for r in others)
+                     + ' — transfer it here (Stock → Transfer Stock).')
+    if tot and tot['stock_count'] > tot['b']:
+        hints.append(f'{tot["stock_count"] - tot["b"]:g} were typed on the product form and are in no '
+                     f'branch — put them in a branch (Stock Levels → "Put it in a branch").')
+    if not hints:
+        hints.append('Receive it first: Stock Levels → Add / Adjust Stock → Stock In.')
+    return ' '.join(hints)
 
 
 def sell(items, branch_id, doc_id):
