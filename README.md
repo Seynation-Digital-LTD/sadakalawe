@@ -9,6 +9,22 @@ python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 ```
 
+### Python version
+
+Use **Python 3.11 or newer** — the image library (Pillow) only gets its security
+fixes on 3.11+. The macOS built-in `python3` is 3.9; to rebuild the venv on 3.12:
+
+```bash
+uv venv --python 3.12 venv        # or: brew install python@3.12 && python3.12 -m venv venv
+venv/bin/pip install -r requirements.txt   # with uv: uv pip install --python venv/bin/python -r requirements.txt
+```
+
+### Tests
+
+```bash
+venv/bin/python -m unittest discover -s tests -v
+```
+
 ## Running the app
 
 ```bash
